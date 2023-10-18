@@ -43,13 +43,14 @@ uint32_t get_bar( uint16_t D_ID, uint16_t V_ID ) {
 }
 
 void test_scratchreg_write ( uint32_t bar0_addr ) {
-    uint32_t bar_0_val = pci_cfg_read ( bar0_addr );
-    uint32_t scratchpad_register_addr =  (bar_0_val & ~3) + 7; // mask off first two bits of base0 and offset by 7
+    uint32_t bar0_val = pci_cfg_read ( bar0_addr );
+    printf ( "bar0_val: %x\n", bar0_val);
+    uint32_t scratchpad_register_addr =  (bar0_val & ~3) + 7; // mask off first two bits of base0 and offset by 7
 
     uint8_t val_to_write = 0x5A;
-    printf ( "Writing %u to scratchpad\n", val_to_write );
+    printf ( "Writing 0x%X to scratchpad\n", val_to_write );
     outb ( val_to_write, scratchpad_register_addr );
-    printf ( "Read from scratchpad: %u\n", inb ( scratchpad_register_addr ) );
+    printf ( "Read from scratchpad: 0x%X\n", inb ( scratchpad_register_addr ) );
 }
 
 uint16_t get_bar_size ( uint32_t bar_addr ) {
@@ -76,12 +77,11 @@ int main ( void ) {
         return 1;
     }
 
-    // Set this to values of the Serial Controller (UART) using lspci and lspci -n for IDs
-    // uint16_t vendor_id = 0x8086;
-    // uint16_t device_id = 0x9d60;
+    // Set this to values of the Serial Controller using lspci and lspci -n for IDs
+    uint16_t vendor_id = 0x8086;
+    uint16_t device_id = 0xa13d;
     
     uint32_t bar0_addr = get_bar ( device_id, vendor_id );
-    
     /**
      * PART 1
      * Write 0x5A to scratchpad register of base address register 0 and read the register.
@@ -90,15 +90,14 @@ int main ( void ) {
     /** 
      * PART 2
      * Register count that BAR maps
-     * TODO: size might need more specific calculation
     */
-    // printf ( "Bar0 maps %u registers.\n", get_bar_size ( bar0_addr ) );
+    printf ( "Bar0 maps %u registers.\n", get_bar_size ( bar0_addr ) );
     /**
      * PART 3
      * Remap BAR and check that it actually changed location
      */
-    // uint32_t new_bar0_addr = // spytaj sa
-    // pci_cfg_write ( bar0_addr, new_bar0_addr ); // ??like this this or iol()??
+    // uint32_t new_bar0_addr = 0x2000;
+    // pci_cfg_write ( bar0_addr, new_bar0_addr );
     // // Shouldn't read 0x5A anymore, since the BAR0 points to a new location
     // printf ( "Read from scratchpad afer BAR0 address change: %u\n", inb ( scratchpad_register_addr ) );
     // pci_cfg_write ( bar0_addr, bar0_addr );
