@@ -98,7 +98,7 @@ int main ( void ) {
     print_endpoint_descriptors ( &dev_dsc, config );
 
     const struct libusb_endpoint_descriptor *ep_desc = get_active_endpoint_descriptor ( config );
-    printf("Descriptor type: %d\n", ep_desc->bDescriptorType);
+    printf("Endpoint descriptor type: %d\n", ep_desc->bDescriptorType);
     //-------------------------------------------------------
     // Open device
     libusb_device_handle *handle;
