@@ -82,6 +82,7 @@ int main ( void ) {
         libusb_exit(ctx);
         return 1;
     }
+
     //-------------------------------------------------------
     // Get endpoint descriptor
     struct libusb_config_descriptor *config;
@@ -124,9 +125,10 @@ int main ( void ) {
     }
     //-------------------------------------------------------
     // Read data
-    unsigned char data[8];
+    #define BUFFER_SIZE 8 // wMaxPacketSize
+    unsigned char data[BUFFER_SIZE];
     int actual_length;
-    r = libusb_interrupt_transfer(handle, ep_desc->bEndpointAddress, data, 8, &actual_length, 0);
+    r = libusb_interrupt_transfer(handle, ep_desc->bEndpointAddress, data, BUFFER_SIZE, &actual_length, 0);
     if (r == 0) {
         printf("Data: ");
         for (int i = 0; i < actual_length; i++)
