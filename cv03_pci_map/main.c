@@ -42,8 +42,7 @@ uint32_t get_bar( uint16_t D_ID, uint16_t V_ID ) {
     return get_cfgbase ( D_ID, V_ID ) + 0x10;
 }
 
-void test_scratchreg_write ( uint32_t bar0_addr ) {
-    uint32_t bar0_val = pci_cfg_read ( bar0_addr );
+void test_scratchreg_write ( uint32_t bar0_val ) {
     printf ( "bar0_val: %x\n", bar0_val);
     uint32_t scratchpad_register_addr =  (bar0_val & ~3) + 7; // mask off first two bits of base0 and offset by 7
 
@@ -55,7 +54,7 @@ void test_scratchreg_write ( uint32_t bar0_addr ) {
 
 uint16_t get_bar_size ( uint32_t bar_addr ) {
     pci_cfg_write ( bar_addr, 0xFFFFFFFF );
-    return pci_cfg_read ( bar_addr ) & 0xFFFFFFFC;
+    return ~(pci_cfg_read ( bar_addr ) & 0xFFFFFFFC) + 1;
 }
 
 /**
@@ -82,11 +81,13 @@ int main ( void ) {
     uint16_t device_id = 0xa13d;
     
     uint32_t bar0_addr = get_bar ( device_id, vendor_id );
+
     /**
      * PART 1
      * Write 0x5A to scratchpad register of base address register 0 and read the register.
      */
-    test_scratchreg_write ( bar0_addr );
+    uint32_t bar0_val = pci_cfg_read ( bar0_addr );
+    test_scratchreg_write ( bar0_val );
     /** 
      * PART 2
      * Register count that BAR maps
@@ -96,11 +97,16 @@ int main ( void ) {
      * PART 3
      * Remap BAR and check that it actually changed location
      */
-    // uint32_t new_bar0_addr = 0x2000;
-    // pci_cfg_write ( bar0_addr, new_bar0_addr );
+    uint32_t new_bar0_val = 0x2000;
+    pci_cfg_write ( bar0_addr, new_bar0_val );
+    uint32_t scratchpad_register_addr =  (new_bar0_val & ~3) + 7; // mask off first two bits of base0 and offset by 7
+    
+    printf ( "Testing previous bar0_val write\n" );
+    test_scratchreg_write ( bar0_val );
+
     // // Shouldn't read 0x5A anymore, since the BAR0 points to a new location
-    // printf ( "Read from scratchpad afer BAR0 address change: %u\n", inb ( scratchpad_register_addr ) );
-    // pci_cfg_write ( bar0_addr, bar0_addr );
-    // printf ( "Reverting old BAR0 address" );
+    printf ( "Read from scratchpad afer BAR0 address change: 0x%X\n", inb ( scratchpad_register_addr ) );
+    pci_cfg_write ( bar0_addr, bar0_val );
+    printf ( "Reverting old BAR0 address\n" );
     return 0;
 }
