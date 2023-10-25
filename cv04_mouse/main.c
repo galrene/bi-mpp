@@ -2,6 +2,13 @@
 #include <stdlib.h>
 #include <libusb-1.0/libusb.h>
 
+#include <signal.h>
+
+static volatile int keepRunning = 1;
+
+void intHandler(int dummy) {
+    keepRunning = 0;
+}
 
 void print_endpoint_descriptors ( struct libusb_device_descriptor * dev_dsc, struct libusb_config_descriptor * config ) {
     // Loop through the endpoints
@@ -50,10 +57,12 @@ const struct libusb_endpoint_descriptor * get_active_endpoint_descriptor ( struc
     return ep_desc;
 }
 
-#define MOUSE_VENDOR 0x1af3
-#define MOUSE_PRODUCT 0x0001
+#define MOUSE_VENDOR 0x1A81
+#define MOUSE_PRODUCT 0x2205
 
 int main ( void ) {
+    /* Initialise interrupt handler*/
+    signal(SIGINT, intHandler);
     /* Initialise libusb */
     libusb_context *ctx;
     libusb_init(&ctx);
@@ -85,7 +94,7 @@ int main ( void ) {
 
     //-------------------------------------------------------
     // Get endpoint descriptor
-    struct libusb_config_descriptor *config;
+    struct libusb_config_descriptor *config;   signal(SIGINT, intHandler);
     r = libusb_get_active_config_descriptor(found_dev, &config);
     if (r < 0) {
         printf("ERROR: %s\n", libusb_strerror(r));
@@ -128,15 +137,18 @@ int main ( void ) {
     #define BUFFER_SIZE 8 // wMaxPacketSize
     unsigned char data[BUFFER_SIZE];
     int actual_length;
-    r = libusb_interrupt_transfer(handle, ep_desc->bEndpointAddress, data, BUFFER_SIZE, &actual_length, 0);
-    if (r == 0) {
-        printf("Data: ");
-        for (int i = 0; i < actual_length; i++)
-            printf("%02X ", data[i]);
-        printf("\n");
-    }
-    else {
-        printf("ERROR: %s\n", libusb_strerror(r));
+    while ( keepRunning ) {
+        r = libusb_interrupt_transfer(handle, ep_desc->bEndpointAddress, data, BUFFER_SIZE, &actual_length, 0);
+        if (r == 0) {
+            printf("Data: ");
+            for (int i = 0; i < actual_length; i++)
+                printf("%02X ", data[i]);
+            printf("\n");
+        }
+        else
+            printf("ERROR: %s\n", libusb_strerror(r));
+        if ( feof(stdin) )
+            break;
     }
     //-------------------------------------------------------
     // Release interface
