@@ -1,2 +1,4 @@
 *.out
 .vscode
+/cv07/usbdev.X/build/
+/cv07/usbdev.X/dist/
