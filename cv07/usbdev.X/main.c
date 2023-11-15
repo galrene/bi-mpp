@@ -110,13 +110,14 @@ void init_usb_dev ( void ) {
     while (!is_powered());
     device_state = POWERED;
 }
-
+unsigned int DEBUG = 0x00000A04;
 #define CTS_SETUP   0
 #define CTS_DEVDSC  1
 #define CTS_ACKIN   2
 #define CTS_ACKAD   3
 #define CTS_CFGDSC  4
 #define CTS_ACKSC   5
+#define CTS_DBGDSC  6
 
 int configuration = 0;
 void process_control_transfer ( int ep ) {
@@ -146,11 +147,19 @@ void process_control_transfer ( int ep ) {
                                             ep0_buf_in, MIN(sizeof(devdsc),req.wLength));
                         state = CTS_DEVDSC;
                         break;
+                    // CONFIG DESCRIPTOR
                     case 2:
                         copy_to_buffer ( ep0_buf_in, &CONFIG, sizeof(CONFIG) );
                         usb_ep_transf_start(EP(ep0), USB_TRN_DATA1_IN,
                                             ep0_buf_in, MIN(sizeof(CONFIG),req.wLength));
                         state = CTS_CFGDSC;
+                        break;
+                    // DEBUG DESC
+                    case 0xA:
+                        copy_to_buffer ( ep0_buf_in, &DEBUG, sizeof(DEBUG) );
+                        usb_ep_transf_start(EP(ep0), USB_TRN_DATA1_IN,
+                                            ep0_buf_in, MIN(sizeof(DEBUG),req.wLength));
+                        state = CTS_DBGDSC;
                         break;
                     default:
                         PRINTF("Unknown desc: %d\n", (req.wValue >> 8) & 0xFF);
@@ -186,6 +195,11 @@ void process_control_transfer ( int ep ) {
                     ep0_buf_out, EP0_OUT_BUF_SIZE);
             state = CTS_ACKIN;
             break;
+        case CTS_DBGDSC:
+            usb_ep_transf_start(EP(ep0), USB_TRN_DATA1_OUT,
+                    ep0_buf_out, EP0_OUT_BUF_SIZE);
+            state = CTS_ACKIN;
+            break;
         case CTS_ACKIN:
             usb_ep_transf_start(EP(ep0), USB_TRN_SETUP, ep0_buf_out, EP0_OUT_BUF_SIZE);
             state = CTS_SETUP;
@@ -194,9 +208,11 @@ void process_control_transfer ( int ep ) {
             usb_set_address(addr);
             usb_ep_transf_start(EP(ep0), USB_TRN_SETUP, ep0_buf_out, EP0_OUT_BUF_SIZE);
             break;
-        case CTS_ACKSC:
-            usb_ep_transf_start(EP(ep0), USB_TRN_SETUP, ep0_buf_out, EP0_OUT_BUF_SIZE);
-            break;
+        // case CTS_ACKSC:
+        //     usb_ep_transf_start(EP(ep0), USB_TRN_SETUP, ep0_buf_out, EP0_OUT_BUF_SIZE);
+        //     break;
+        
+            
     }
 
 }
