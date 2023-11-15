@@ -52,7 +52,7 @@ const struct config {
         4,               // bDescriptorType
         0,               // bInterfaceNumber
         0x0,             // bAlternateSetting
-        3,               // bNumEndpoints
+        1,               // bNumEndpoints
         0xFF,            // bInterfaceClass
         0x0,            // bInterfaceSubClass
         0x0,            // bInterfaceProtocol
