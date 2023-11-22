@@ -210,18 +210,12 @@ void print_hex(unsigned char *data, int length) {
     printf("\n");
 }
 
-int configure_device ( struct libusb_device_handle *device ) {
+int configure_device ( libusb_device_handle *device ) {
     if ( libusb_set_auto_detach_kernel_driver(device, 1) != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to set auto detach kernel driver\n");
         return 0;
     }
-
-    // set configuration
     int r = 0;
-    if ( ( r = libusb_set_configuration(device, 1) ) != 0 ) {
-        fprintf (stderr, "Unable to set configuration - error: %s\n", libusb_strerror(r));
-        return 0;
-    }
     // claim interface
     if ( ( r = libusb_claim_interface(device, 0) ) != 0 ) {
         fprintf(stderr, "Unable to claim interface - error: %s\n", libusb_strerror(r));
@@ -236,6 +230,15 @@ void destroy_device ( struct libusb_device_handle *device ) {
     // close device
     libusb_close(device);
     libusb_exit(NULL);
+}
+
+#define INQUIRY_DATA_LEN 36
+
+void decode_inq_data ( unsigned char * data ) {
+    printf("periheral qualifier: %02X\n", data[0] >> 5);
+    printf("Peripheral device type: %02X\n", data[0] & 0x1F);
+    printf("Vendor ID: %02X%02X%02X%02X\n", data[8], data[9], data[10], data[11]);
+    printf("Product ID: %02X%02X%02X%02X\n", data[16], data[17], data[18], data[19]);
 }
 
 int inquiry ( libusb_device_handle * device_handle ) {
@@ -263,7 +266,7 @@ int inquiry ( libusb_device_handle * device_handle ) {
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
         return 1;
     }
-    unsigned char rec_data[36];
+    unsigned char rec_data[INQUIRY_DATA_LEN];
     // receive data
     r = libusb_bulk_transfer ( device_handle,                   // dev handle
                                ENDPOINT_IN,                     // endpoint
@@ -289,10 +292,18 @@ int inquiry ( libusb_device_handle * device_handle ) {
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
         return 1;
     }
-    printf(stderr, "CSW status: %d\n", csw_inquiry.bCSWStatus);
-    printf(stderr, "CSW data signature: %s\n", csw_inquiry.dCSWSignature);
-    // if CSWStatus is ok
-    // decode_inq_data(rec_data);
+    
+    if ( csw_inquiry.bCSWStatus != 0 ) {
+        fprintf(stderr, "CSW status error (returned non-zero)\n");
+        fprintf(stderr, "CSW status: %d\n", csw_inquiry.bCSWStatus);
+        return 1;
+    }
+    if ( csw_inquiry.dCSWSignature != USBC_SIGNATURE ) {
+        fprintf(stderr, "CSW signature mismatch\n");
+        fprintf(stderr, "CSW signature: %d\n", csw_inquiry.dCSWSignature);
+        return 1;
+    }
+    decode_inq_data(rec_data);
     return 0;
 }
 
