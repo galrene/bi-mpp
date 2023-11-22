@@ -5,6 +5,8 @@
 
 #define TIMEOUT 1000
 
+#define USBC_SIGNATURE 0x43425355
+
 // USB endpoint directions
 #define ENDPOINT_IN 0x81
 #define ENDPOINT_OUT 0x02
@@ -24,74 +26,145 @@
 #define DATA_OUT 0x00
 
 // Wrapper structure for USB Mass Storage Bulk-Only commands
-typedef struct {
-    unsigned char bmCBWSignature[4];
-    unsigned int dwCBWTag;
-    unsigned int dwCBWDataTransferLength;
-    unsigned char bCBWFlags;
-    unsigned char bCBWLUN;
-    unsigned char bCBWCBLength;
-    unsigned char CBWCB[16];
-} usb_mass_bulk_cbw;
+typedef struct __attribute__((packed)) {
+uint32_t dCBWSignature;
+uint32_t dCBWTag;
+uint32_t dCBWDataTransferLength;
+unsigned char bmCBWFlags;
+unsigned char bCBWLUN;  // pouze bity 0-3
+unsigned char bCBWCBLength; // pouze bity 0-5
+unsigned char CBWCB[16];
+} CBW_t;
 
 // Wrapper structure for USB Mass Storage Bulk-Only command status
-typedef struct {
-    unsigned char dCSWSignature[4];
-    unsigned int dwCSWTag;
-    unsigned int dwCSWDataResidue;
+typedef struct __attribute__((packed)) {
+    uint32_t dCSWSignature;
+    uint32_t dCSWTag;
+    uint32_t dCSWDataResidue;
     unsigned char bCSWStatus;
-} usb_mass_bulk_csw;
+} CSW_t;
 
-void fill_inquiry_cbw(usb_mass_bulk_cbw *cbw) {
-    // Fill the CBW structure with data for the INQUIRY command
-    // Modify this function based on the SCSI command specification
+void fill_inquiry_cbw(CBW_t *cbw) {
     // Refer to the "spc3r23.pdf" document for details on the INQUIRY command
-    // ...
-
-    // Example: SCSI INQUIRY command
-    cbw->bmCBWSignature[0] = 'U';
-    cbw->bmCBWSignature[1] = 'S';
-    cbw->bmCBWSignature[2] = 'B';
-    cbw->bmCBWSignature[3] = 'C';
-    cbw->dwCBWTag = 0x12345678;
-    cbw->dwCBWDataTransferLength = 0;
-    cbw->bCBWFlags = DATA_IN; // Data transfer direction (bit 7 = 1 for IN)
+    /**
+     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer. 
+     * - na endpoint out, buffer: &cbw, size: sizeof(cbw) 
+     * - na endpoint in, buffer: pro data, size: 36 
+     * - na endpoint in, buffer: &csw, size: sizeof(csw).
+     */
+    cbw->dCBWSignature = USBC_SIGNATURE;
+    cbw->dCBWTag = 0x12345678;
+    cbw->dCBWDataTransferLength = 36;
+    cbw->bmCBWFlags = DATA_IN;
     cbw->bCBWLUN = 0;
     cbw->bCBWCBLength = 6;
     cbw->CBWCB[0] = SCSI_INQUIRY;
-    cbw->CBWCB[1] = 0x00; // Additional parameters
+    cbw->CBWCB[1] = 0x00; 
+    cbw->CBWCB[2] = 0x00;
+    cbw->CBWCB[3] = 0x00; // AH
+    cbw->CBWCB[4] = 0x24; // Allocation length
+    cbw->CBWCB[5] = 0x00;
+    // AH * 256 * AL = 36 Bytes to read
+}
+
+void fill_request_sense_cbw(CBW_t *cbw) {
+    /**
+     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
+     * - na endpoint out, buffer: &cbw, size: sizeof(cbw) 
+     * - na endpoint in, buffer: pro data, size: 18 
+     * - na endpoint in, buffer: &csw, size: sizeof(csw).
+     */
+    cbw->dCBWSignature = USBC_SIGNATURE;
+    cbw->dCBWTag = 0x02345678;
+    cbw->dCBWDataTransferLength = 18;
+    cbw->bmCBWFlags = DATA_IN;
+    cbw->bCBWLUN = 0;
+    cbw->bCBWCBLength = 6;
+    cbw->CBWCB[0] = SCSI_REQUEST_SENSE;
+    cbw->CBWCB[1] = 0x00;
     cbw->CBWCB[2] = 0x00;
     cbw->CBWCB[3] = 0x00;
-    cbw->CBWCB[4] = 0xFF; // Allocation length
+    cbw->CBWCB[4] = 0x18; // Allocation length - how much we want to read
     cbw->CBWCB[5] = 0x00;
 }
 
-void fill_request_sense_cbw(usb_mass_bulk_cbw *cbw) {
-    // Fill the CBW structure with data for the REQUEST SENSE command
-    // Modify this function based on the SCSI command specification
-    // Refer to the appropriate documentation for details on the command
-    // ...
+void fill_read_capacity_cbw(CBW_t *cbw) {
+    /**
+     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
+     * - na endpoint out, buffer: &cbw, size: sizeof(cbw)
+     * - na endpoint in, buffer: pro data, size: 8
+     * - na endpoint in, buffer: &csw, size: sizeof(csw).
+     * mlba = (mlba3 « 24) | (mlba2 « 16) | (mlba1 « 8) | mlba0; adresa posledního bloku.
+     * blen = (blen3 « 24) | (blen2 « 16) | (blen1 « 8) | blen0; velikost bloku v bytech.
+     * Kapacita media: size = (mlba+1)*blen;
+     */
+    cbw->dCBWSignature = USBC_SIGNATURE;
+    cbw->dCBWTag = 0x00345678;
+    cbw->dCBWDataTransferLength = 8;
+    cbw->bmCBWFlags = DATA_IN;
+    cbw->bCBWLUN = 0;
+    cbw->bCBWCBLength = 10;
+    cbw->CBWCB[0] = SCSI_READ_CAPACITY;
+    cbw->CBWCB[1] = 0x00;
+    cbw->CBWCB[2] = 0x00;
+    cbw->CBWCB[3] = 0x00;
+    cbw->CBWCB[4] = 0x00;
+    cbw->CBWCB[5] = 0x00;
+    cbw->CBWCB[6] = 0x00;
+    cbw->CBWCB[7] = 0x00;
+    cbw->CBWCB[8] = 0x00;
+    cbw->CBWCB[9] = 0x00;
 }
 
-void fill_read_capacity_cbw(usb_mass_bulk_cbw *cbw) {
-    // Fill the CBW structure with data for the READ CAPACITY command
-    // Modify this function based on the SCSI command specification
-    // Refer to the appropriate documentation for details on the command
-    // ...
+/**
+ * @brief UNFINISHED, CBWCB not filled
+ * 
+ * @param cbw 
+ * @param blen 
+ * @param BC BC = BC1«8+BC0 je délka přenášených dat v blocích.
+ */
+void fill_read_10_cbw(CBW_t *cbw, int blen, int BC, char * LBA) {
+    /**
+     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
+     * - na endpoint out, buffer: &cbw, size: sizeof(cbw)
+     * - na endpoint in, buffer: pro data, size: blen * BC
+     * - na endpoint in, buffer: &csw, size: sizeof(csw).
+     */
+    cbw->dCBWSignature = USBC_SIGNATURE;
+    cbw->dCBWTag = 0x00045678;
+    cbw->dCBWDataTransferLength = blen * BC;
+    cbw->bmCBWFlags = DATA_IN;
+    cbw->bCBWLUN = 0;
+    cbw->bCBWCBLength = 10;
+    cbw->CBWCB[0] = SCSI_READ_10;
+    cbw->CBWCB[1] = 0x00;
+    cbw->CBWCB[2] = 0x00; // LBA3
+    cbw->CBWCB[3] = 0x00; // LBA2
+    cbw->CBWCB[4] = 0x00; // LBA1
+    cbw->CBWCB[5] = 0x00; // LBA0
+    cbw->CBWCB[6] = 0x00;
+    cbw->CBWCB[7] = 0x00; // BC1 - transfer length in blocks
+    cbw->CBWCB[8] = 0x00; // BC0
+    cbw->CBWCB[9] = 0x00;
 }
 
-void fill_read_10_cbw(usb_mass_bulk_cbw *cbw) {
-    // Fill the CBW structure with data for the READ (10) command
-    // Modify this function based on the SCSI command specification
-    // Refer to the appropriate documentation for details on the command
-    // ...
-}
-
-void fill_write_10_cbw(usb_mass_bulk_cbw *cbw) {
-    // Fill the CBW structure with data for the WRITE (10) command
-    // Modify this function based on the SCSI command specification
-    // Refer to the appropriate documentation for details on the command
-    // ...
+void fill_write_10_cbw(CBW_t *cbw, int blen, int BC) {
+    cbw->dCBWSignature = USBC_SIGNATURE;
+    cbw->dCBWTag = 0x00045678;
+    cbw->dCBWDataTransferLength = blen * BC;
+    cbw->bmCBWFlags = DATA_IN;
+    cbw->bCBWLUN = 0;
+    cbw->bCBWCBLength = 10;
+    cbw->CBWCB[0] = SCSI_READ_10;
+    cbw->CBWCB[1] = 0x00;
+    cbw->CBWCB[2] = 0x00; // LogicalBlocakAddress3
+    cbw->CBWCB[3] = 0x00; // LBA2
+    cbw->CBWCB[4] = 0x00; // LBA1
+    cbw->CBWCB[5] = 0x00; // LBA0
+    cbw->CBWCB[6] = 0x00;
+    cbw->CBWCB[7] = 0x00; // BC1 - transfer length in blocks
+    cbw->CBWCB[8] = 0x00; // BC0
+    cbw->CBWCB[9] = 0x00;
 }
 
 void print_endpoint_descriptors ( libusb_device * device ) {
@@ -126,28 +199,6 @@ unsigned char get_max_lun ( struct libusb_device_handle *device ) {
                             1000);
     return max_lun;
 }
-//
-//void send_inquiry ( struct libusb_device_handle *device,
-//                    unsigned char *inquiry, unsigned int size,
-//                    unsigned char * inquiry_received, int size_received ) {
-//    libusb_control_transfer(device,
-//                            LIBUSB_ENDPOINT_IN
-//                            | LIBUSB_REQUEST_TYPE_CLASS
-//                            | LIBUSB_RECIPIENT_INTERFACE,
-//                            0x12,
-//                            0,
-//                            0,
-//                            inquiry,
-//                            size,
-//                            1000);
-//    // receive data
-//    libusb_bulk_transfer(device,
-//                         0x81,
-//                         inquiry_received,
-//                         size_received,
-//                         NULL,
-//                         1000);
-//}
 
 #define DEVICEID 0x1666
 #define VENDORID 0x0951
@@ -187,11 +238,68 @@ void destroy_device ( struct libusb_device_handle *device ) {
     libusb_exit(NULL);
 }
 
+int inquiry ( libusb_device_handle * device_handle ) {
+    /* Pomocí funkcí Libusb pošlete CBW(INQUIRY) do USB flash
+       paměti a přečtěte dodaná data a CSW blok. Zkontrolujte status
+       v CSW bloku a dekodujte datovou část. Významné části
+       vytiskněte */
+    /**
+     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer. 
+     * - na endpoint out, buffer: &cbw, size: sizeof(cbw) 
+     * - na endpoint in, buffer: pro data, size: 36 
+     * - na endpoint in, buffer: &csw, size: sizeof(csw).
+     */ 
+    CBW_t cbw_inquiry;
+    fill_inquiry_cbw(&cbw_inquiry);
+    // send cbw_inqury
+    int r = libusb_bulk_transfer ( device_handle,                   // dev handle
+                                   ENDPOINT_OUT,                    // endpoint
+                                   (unsigned char *)&cbw_inquiry,   // data
+                                   sizeof(cbw_inquiry),             // length
+                                   NULL,                            // actual length
+                                   TIMEOUT );                       // timeout
+    if ( r < 1 ) {
+        fprintf(stderr, "Unable to send CBW\n");
+        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+        return 1;
+    }
+    unsigned char rec_data[36];
+    // receive data
+    r = libusb_bulk_transfer ( device_handle,                   // dev handle
+                               ENDPOINT_IN,                     // endpoint
+                               rec_data,                        // data
+                               sizeof(rec_data),                // length
+                               NULL,                            // actual length (not sure if null correct)
+                               TIMEOUT );                       // timeout
+    if ( r < 1 ) {
+        fprintf(stderr, "Unable to receive data\n");
+        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+        return 1;
+    }
+    CSW_t csw_inquiry;
+    // receive csw
+    r = libusb_bulk_transfer ( device_handle,                   // dev handle
+                               ENDPOINT_IN,                     // endpoint
+                               (unsigned char *)&csw_inquiry,   // data
+                               sizeof(csw_inquiry),             // length
+                               NULL,                            // actual length (not sure if null correct)
+                               TIMEOUT );                       // timeout
+    if ( r < 1 ) {
+        fprintf(stderr, "Unable to receive CSW\n");
+        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+        return 1;
+    }
+    printf(stderr, "CSW status: %d\n", csw_inquiry.bCSWStatus);
+    printf(stderr, "CSW data signature: %s\n", csw_inquiry.dCSWSignature);
+    // if CSWStatus is ok
+    // decode_inq_data(rec_data);
+    return 0;
+}
+
 int main ( void ) {
     libusb_init(NULL);
     libusb_device_handle *device_handle =
             libusb_open_device_with_vid_pid(NULL,VENDORID, DEVICEID);
-//    libusb_device * device =  libusb_get_device(device_handle);
     if ( ! device_handle ) {
         fprintf(stderr, "Unable to open device\n");
         return 1;
@@ -203,38 +311,10 @@ int main ( void ) {
 
     printf ("Max LUN: %d\n", get_max_lun(device_handle));
 
-    usb_mass_bulk_cbw cbw_inquiry;
-    fill_inquiry_cbw(&cbw_inquiry);
-
-    // send cbw_inqury
-    int r = libusb_bulk_transfer(device_handle,
-                                 ENDPOINT_OUT,
-                                 (unsigned char *)&cbw_inquiry,
-                                 sizeof(cbw_inquiry),
-                                 NULL,
-                                 TIMEOUT);
-    if ( r < 1 ) {
-        fprintf(stderr, "Unable to send CBW\n");
-        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+    if ( ! inquiry(device_handle) ) {
         destroy_device(device_handle);
         return 1;
     }
-    usb_mass_bulk_csw csw_inquiry;
-    // receive data
-    r = libusb_bulk_transfer(device_handle,
-                             ENDPOINT_IN,
-                             (unsigned char *) &csw_inquiry,
-                             sizeof(csw_inquiry),
-                             NULL,
-                             TIMEOUT);
-    if ( r < 1 ) {
-        fprintf(stderr, "Unable to receive data\n");
-        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
-        destroy_device(device_handle);
-        return 1;
-    }
-    fprintf(stderr, "CSW status: %d\n", csw_inquiry.bCSWStatus);
-    fprintf(stderr, "CSW data signature: %s\n", csw_inquiry.dCSWSignature);
 
 
     destroy_device(device_handle);
