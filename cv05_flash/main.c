@@ -189,14 +189,20 @@ void print_endpoint_descriptors ( libusb_device_handle * handle ) {
 
 unsigned char get_max_lun ( struct libusb_device_handle *device ) {
     unsigned char max_lun;
-    libusb_control_transfer(device,
-                            ENDPOINT_IN,
-                            REQUEST_GET_MAX_LUN,
-                            0,
-                            0,
-                            &max_lun,
-                            1,
-                            1000);
+    int r = libusb_control_transfer(device,
+                                    LIBUSB_ENDPOINT_IN | LIBUSB_REQUEST_TYPE_CLASS | LIBUSB_RECIPIENT_INTERFACE,
+                                    REQUEST_GET_MAX_LUN,
+                                    0,
+                                    0,
+                                    &max_lun,
+                                    sizeof(max_lun),
+                                    1000);
+
+    if ( r < 1 ) {
+        fprintf(stderr, "Unable to get max lun - error: %s\n", libusb_strerror(r));
+        return 0;
+    }
+
     return max_lun;
 }
 
@@ -293,8 +299,8 @@ int inquiry ( libusb_device_handle * device_handle ) {
         return 1;
     }
     
-    if ( csw_inquiry.bCSWStatus != 0 ) {
-        fprintf(stderr, "CSW status error (returned non-zero)\n");
+    if ( csw_inquiry.bCSWStatus != LIBUSB_SUCCESS ) {
+        fprintf(stderr, "CSW status error\n");
         fprintf(stderr, "CSW status: %d\n", csw_inquiry.bCSWStatus);
         return 1;
     }
@@ -322,7 +328,7 @@ int main ( void ) {
 
     print_endpoint_descriptors(device_handle);
 
-    // printf ("Max LUN: %d\n", get_max_lun(device_handle));
+    printf ("Max LUN: %d\n", get_max_lun(device_handle));
 
     if ( ! inquiry(device_handle) ) {
         destroy_device(device_handle);
