@@ -167,6 +167,7 @@ void print_endpoint_descriptors ( libusb_device_handle * handle ) {
             }
         }
     }
+    libusb_free_config_descriptor(config);
 }
 
 unsigned char get_max_lun ( struct libusb_device_handle *device ) {
@@ -187,9 +188,6 @@ unsigned char get_max_lun ( struct libusb_device_handle *device ) {
 
     return max_lun;
 }
-
-#define DEVICEID 0x1666
-#define VENDORID 0x0951
 
 void print_hex(unsigned char *data, int length) {
     for (int i = 0; i < length; ++i) {
@@ -423,12 +421,42 @@ int read_capacity ( libusb_device_handle * device_handle, TReadCapacityData * re
     return 1;
 }
 
+// read usb device list and return device handle of the one with bInterfaceClass = 8
+libusb_device_handle * find_mass_storage_device ( void ) {
+    libusb_device **devs;
+    ssize_t cnt = libusb_get_device_list(NULL, &devs);
+    if ( cnt < 0 ) {
+        fprintf(stderr, "Unable to get device list\n");
+        return NULL;
+    }
+    libusb_device_handle *device_handle = NULL;
+    for ( ssize_t i = 0 ; i < cnt ; i ++ ) {
+        libusb_device *device = devs[i];
+        struct libusb_device_descriptor desc;
+        int r = libusb_get_device_descriptor(device, &desc);
+        if ( r < 0 ) {
+            fprintf(stderr, "Unable to get device descriptor\n");
+            continue;
+        }
+        if ( desc.bDeviceClass == 0 || desc.bDeviceClass == 8 ) {
+            r = libusb_open(device, &device_handle);
+            if ( r < 0 ) {
+                fprintf(stderr, "Unable to open device\n");
+                continue;
+            }
+            break;
+        }
+    }
+    libusb_free_device_list(devs, 1);
+    return device_handle;
+}
+
+
 int main ( void ) {
     libusb_init(NULL);
-    libusb_device_handle *device_handle =
-            libusb_open_device_with_vid_pid(NULL,VENDORID, DEVICEID);
+    libusb_device_handle *device_handle = find_mass_storage_device();
     if ( ! device_handle ) {
-        fprintf(stderr, "Unable to open device\n");
+        fprintf(stderr, "No mass storage devices found\n");
         return 1;
     }
     if ( ! configure_device(device_handle) ) {
