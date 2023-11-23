@@ -77,15 +77,6 @@ void fill_request_sense_cbw(CBW_t *cbw) {
 }
 
 void fill_read_capacity_cbw(CBW_t *cbw) {
-    /**
-     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
-     * - na endpoint out, buffer: &cbw, size: sizeof(cbw)
-     * - na endpoint in, buffer: pro data, size: 8
-     * - na endpoint in, buffer: &csw, size: sizeof(csw).
-     * mlba = (mlba3 « 24) | (mlba2 « 16) | (mlba1 « 8) | mlba0; adresa posledního bloku.
-     * blen = (blen3 « 24) | (blen2 « 16) | (blen1 « 8) | blen0; velikost bloku v bytech.
-     * Kapacita media: size = (mlba+1)*blen;
-     */
     cbw->dCBWSignature = USBC_SIGNATURE;
     cbw->dCBWTag = 0x00345678;
     cbw->dCBWDataTransferLength = 8;
@@ -227,6 +218,7 @@ void destroy_device ( struct libusb_device_handle *device ) {
 
 #define INQUIRY_DATA_LEN 36
 #define REQ_SENSE_DATA_LEN 18
+#define READ_CAPACITY_DATA_LEN 8
 
 void decode_inq_data ( unsigned char * data ) {
     printf("======INQUIRY DATA======\n");
@@ -278,6 +270,40 @@ int check_csw ( libusb_device_handle * handle ) {
     return 1;
 }
 
+int send_cbw ( libusb_device_handle * handle, CBW_t * cbw ) {
+    int transferred = 0;
+    // send CBW
+    int r = libusb_bulk_transfer ( handle,                      // dev handle
+                               ENDPOINT_OUT,                    // endpoint
+                               (unsigned char *)cbw,            // data
+                               sizeof(*cbw),                    // length
+                               &transferred,                    // actual length (not sure if null correct)
+                               BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
+    if ( r != LIBUSB_SUCCESS ) {
+        fprintf(stderr, "Unable to send CBW\n");
+        fprintf(stderr, "Transferred bytes: %d\n", transferred);
+        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+        return 0;
+    }
+    return 1;
+}
+
+int receive_data ( libusb_device_handle * device_handle, unsigned char * rec_data, int length ) {
+    // receive data
+    int r = libusb_bulk_transfer (  device_handle,                   // dev handle
+                                    ENDPOINT_IN,                     // endpoint
+                                    rec_data,                        // data
+                                    length,                          // length
+                                    NULL,                            // actual transfer length
+                                    BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
+    if ( r != LIBUSB_SUCCESS ) {
+        fprintf(stderr, "Unable to receive data\n");
+        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+        return 0;
+    }
+    return 1;
+}
+
 int inquiry ( libusb_device_handle * device_handle ) {
     /* Pomocí funkcí Libusb pošlete CBW(INQUIRY) do USB flash
        paměti a přečtěte dodaná data a CSW blok. Zkontrolujte status
@@ -291,34 +317,12 @@ int inquiry ( libusb_device_handle * device_handle ) {
      */ 
     CBW_t cbw_inquiry;
     fill_inquiry_cbw(&cbw_inquiry);
-    int transferred = 0;
-    // send an inqury
-    int r = libusb_bulk_transfer ( device_handle,                   // dev handle
-                                   ENDPOINT_OUT,                    // endpoint
-                                   (unsigned char *)&cbw_inquiry,   // data
-                                   sizeof(cbw_inquiry),             // length
-                                   &transferred,                    // actual transfer length
-                                   BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
-    if ( r != LIBUSB_SUCCESS ) {
-        fprintf(stderr, "Unable to send CBW\n");
-        fprintf(stderr, "Transferred bytes: %d\n", transferred );
-        fprintf(stderr, "Error: %s\n", libusb_strerror(r));
+    if ( ! send_cbw ( device_handle, &cbw_inquiry ) )
         return 0;
-    }
     unsigned char rec_data[INQUIRY_DATA_LEN];
-    // receive data
-    r = libusb_bulk_transfer ( device_handle,                   // dev handle
-                               ENDPOINT_IN,                     // endpoint
-                               rec_data,                        // data
-                               sizeof(rec_data),                // length
-                               NULL,                            // actual transfer length
-                               BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
-    if ( r != LIBUSB_SUCCESS ) {
-        fprintf(stderr, "Unable to receive data\n");
-        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+    if ( ! receive_data ( device_handle, rec_data, INQUIRY_DATA_LEN ) )
         return 0;
-    }
-    if ( ! check_csw(device_handle) )
+    if ( ! check_csw ( device_handle ) )
         return 0;
     decode_inq_data(rec_data);
     return 1;
@@ -363,36 +367,48 @@ int req_sense ( libusb_device_handle * device_handle ) {
      */
     CBW_t cbw_req_sense;
     fill_request_sense_cbw(&cbw_req_sense);
-    int transferred = 0;
-    // send an req sense
-    int r = libusb_bulk_transfer ( device_handle,                   // dev handle
-                                   ENDPOINT_OUT,                    // endpoint
-                                   (unsigned char *)&cbw_req_sense, // data
-                                   sizeof(cbw_req_sense),           // length
-                                   &transferred,                    // actual transfer length
-                                   BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
-    if ( r != LIBUSB_SUCCESS ) {
-        fprintf(stderr, "Unable to send CBW\n");
-        fprintf(stderr, "Transferred bytes: %d\n", transferred );
-        fprintf(stderr, "Error: %s\n", libusb_strerror(r));
+    if ( ! send_cbw ( device_handle, &cbw_req_sense ) )
         return 0;
-    }
     unsigned char rec_data[REQ_SENSE_DATA_LEN];
-    // receive data
-    r = libusb_bulk_transfer ( device_handle,                   // dev handle
-                               ENDPOINT_IN,                     // endpoint
-                               rec_data,                        // data
-                               sizeof(rec_data),                // length
-                               NULL,                            // actual transfer length
-                               BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
-    if ( r != LIBUSB_SUCCESS ) {
-        fprintf(stderr, "Unable to receive data\n");
-        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+    if ( ! receive_data ( device_handle, rec_data, REQ_SENSE_DATA_LEN ) )
         return 0;
-    }
     if ( ! check_csw ( device_handle ) )
         return 0;
     decode_req_sense_data(rec_data);
+    return 1;
+}
+
+void decode_read_capacity_data ( unsigned char * data ) {
+    printf("====READ CAPACITY DATA====\n");
+    printf("Last logical block address: 0x%02X%02X%02X%02X\n", data[0], data[1], data[2], data[3]);
+    printf("Block length: 0x%02X%02X%02X%02X\n", data[4], data[5], data[6], data[7]);
+    printf("==========================\n");
+}
+
+int read_capacity ( libusb_device_handle * device_handle ) {
+    /* Pomocí funkcí Libusb pošlete CBW(READ CAPACITY) do USB flash
+       paměti a přečtěte dodaná data a CSW blok. Zkontrolujte status
+        v CSW bloku, zjistěte maximalní hodnotu LBA a velikost bloku. Spočtěte kapacitu disku.
+    */
+    /**
+     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
+     * - na endpoint out, buffer: &cbw, size: sizeof(cbw)
+     * - na endpoint in, buffer: pro data, size: 8
+     * - na endpoint in, buffer: &csw, size: sizeof(csw).
+     * mlba = (mlba3 « 24) | (mlba2 « 16) | (mlba1 « 8) | mlba0; adresa posledního bloku.
+     * blen = (blen3 « 24) | (blen2 « 16) | (blen1 « 8) | blen0; velikost bloku v bytech.
+     * Kapacita media: size = (mlba+1)*blen;
+     */ 
+    CBW_t cbw_read_capacity;
+    fill_read_capacity_cbw(&cbw_read_capacity);
+    if ( ! send_cbw ( device_handle, &cbw_read_capacity ) )
+        return 0;
+    unsigned char rec_data[READ_CAPACITY_DATA_LEN];
+    if ( ! receive_data ( device_handle, rec_data, READ_CAPACITY_DATA_LEN ) )
+        return 0;
+    if ( ! check_csw ( device_handle ) )
+        return 0;
+    decode_read_capacity_data(rec_data);
     return 1;
 }
 
