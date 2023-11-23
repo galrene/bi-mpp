@@ -6,6 +6,7 @@
 #define TIMEOUT 1000
 
 #define USBC_SIGNATURE 0x43425355
+#define CSW_SIGNATURE  0x53425355
 
 // USB endpoint directions
 #define ENDPOINT_IN 0x81
@@ -167,7 +168,8 @@ void fill_write_10_cbw(CBW_t *cbw, int blen, int BC) {
     cbw->CBWCB[9] = 0x00;
 }
 
-void print_endpoint_descriptors ( libusb_device * device ) {
+void print_endpoint_descriptors ( libusb_device_handle * handle ) {
+    libusb_device * device = libusb_get_device(handle);
     struct libusb_device_descriptor dev_dsc; libusb_get_device_descriptor( device, &dev_dsc);
     struct libusb_config_descriptor *config; libusb_get_config_descriptor(device, 0, &config);
     // Loop through the endpoints
@@ -188,10 +190,8 @@ void print_endpoint_descriptors ( libusb_device * device ) {
 unsigned char get_max_lun ( struct libusb_device_handle *device ) {
     unsigned char max_lun;
     libusb_control_transfer(device,
-                            LIBUSB_ENDPOINT_IN
-                            | LIBUSB_REQUEST_TYPE_CLASS
-                            | LIBUSB_RECIPIENT_INTERFACE,
-                            0xFE,
+                            ENDPOINT_IN,
+                            REQUEST_GET_MAX_LUN,
                             0,
                             0,
                             &max_lun,
@@ -235,8 +235,6 @@ void destroy_device ( struct libusb_device_handle *device ) {
 #define INQUIRY_DATA_LEN 36
 
 void decode_inq_data ( unsigned char * data ) {
-    printf("periheral qualifier: %02X\n", data[0] >> 5);
-    printf("Peripheral device type: %02X\n", data[0] & 0x1F);
     printf("Vendor ID: %02X%02X%02X%02X\n", data[8], data[9], data[10], data[11]);
     printf("Product ID: %02X%02X%02X%02X\n", data[16], data[17], data[18], data[19]);
 }
@@ -254,16 +252,18 @@ int inquiry ( libusb_device_handle * device_handle ) {
      */ 
     CBW_t cbw_inquiry;
     fill_inquiry_cbw(&cbw_inquiry);
-    // send cbw_inqury
+    int transferred = 0;
+    // send an inqury
     int r = libusb_bulk_transfer ( device_handle,                   // dev handle
                                    ENDPOINT_OUT,                    // endpoint
                                    (unsigned char *)&cbw_inquiry,   // data
                                    sizeof(cbw_inquiry),             // length
-                                   NULL,                            // actual length
+                                   &transferred,                    // actual transfer length
                                    TIMEOUT );                       // timeout
-    if ( r < 1 ) {
+    if ( r != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to send CBW\n");
-        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+        fprintf(stderr, "Transferred bytes: %d\n", transferred );
+        fprintf(stderr, "Error: %s\n", libusb_strerror(r));
         return 1;
     }
     unsigned char rec_data[INQUIRY_DATA_LEN];
@@ -272,22 +272,22 @@ int inquiry ( libusb_device_handle * device_handle ) {
                                ENDPOINT_IN,                     // endpoint
                                rec_data,                        // data
                                sizeof(rec_data),                // length
-                               NULL,                            // actual length (not sure if null correct)
+                               NULL,                            // actual transfer length
                                TIMEOUT );                       // timeout
-    if ( r < 1 ) {
+    if ( r != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to receive data\n");
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
         return 1;
     }
     CSW_t csw_inquiry;
-    // receive csw
+    // receive status
     r = libusb_bulk_transfer ( device_handle,                   // dev handle
                                ENDPOINT_IN,                     // endpoint
                                (unsigned char *)&csw_inquiry,   // data
                                sizeof(csw_inquiry),             // length
                                NULL,                            // actual length (not sure if null correct)
                                TIMEOUT );                       // timeout
-    if ( r < 1 ) {
+    if ( r != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to receive CSW\n");
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
         return 1;
@@ -298,9 +298,9 @@ int inquiry ( libusb_device_handle * device_handle ) {
         fprintf(stderr, "CSW status: %d\n", csw_inquiry.bCSWStatus);
         return 1;
     }
-    if ( csw_inquiry.dCSWSignature != USBC_SIGNATURE ) {
+    if ( csw_inquiry.dCSWSignature != CSW_SIGNATURE ) {
         fprintf(stderr, "CSW signature mismatch\n");
-        fprintf(stderr, "CSW signature: %d\n", csw_inquiry.dCSWSignature);
+        fprintf(stderr, "CSW signature: 0x%X\nExpected: 0x%X\n", csw_inquiry.dCSWSignature, CSW_SIGNATURE);
         return 1;
     }
     decode_inq_data(rec_data);
@@ -320,7 +320,9 @@ int main ( void ) {
         return 1;
     }
 
-    printf ("Max LUN: %d\n", get_max_lun(device_handle));
+    print_endpoint_descriptors(device_handle);
+
+    // printf ("Max LUN: %d\n", get_max_lun(device_handle));
 
     if ( ! inquiry(device_handle) ) {
         destroy_device(device_handle);
