@@ -1,0 +1,18 @@
+pre cv07/usbdev
+
+in a out endpoint spravit
+inicializovat endpointy v todo v set configuration
+naplanovat pre out endpoint prenos ako data0
+spravit premennu ktora bude striedat medzi data1 a data0 - pre vsetky data sa bude striedat
+cize pre process ep transfer ked nastane out prenos na endpoint napriklad 2(out) - po transfer done sa zavola proces ep transfer
+tam prehodime z data0 na data1 alebo opacne, zoberieme data, zobrazime na displeji - radsej v smycke jako hned
+naplanujeme dalsie prijatie dat na endpointe 2 - hotovy smer do device
+pre smer do pc
+funkcia pre stisk klavesy, skontroluje sa v main smycke
+naplanujeme prenos do pc
+pozor! aby sa nestalo ze ked sa drzi tlacitko, tak proste nech sa to posle iba raz
+bud na vnejsi udalost(?)
+do ep trasnfer ked prijmeme nieco z endpointu 2, posleme ako in naspak
+davat pozor, aby sme to neposlali dva krat naspak. bez toho aby medzi tym prisiel done
+tym si vieme vytvorit dva kanaly komunikacie - jeden bude zobrazovat na displeji - potom na tlacitka
+potom staci napisat nieco jak usb flashka - cez libusb program ktory tam nieco posle, nieco prijme
