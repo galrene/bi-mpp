@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#define TIMEOUT 1000
+#define BULK_TRANSFER_TIMEOUT 1000
 
 #define USBC_SIGNATURE 0x43425355
 #define CSW_SIGNATURE  0x53425355
@@ -247,7 +247,7 @@ int check_csw ( libusb_device_handle * handle ) {
                                (unsigned char *)&csw_inquiry,   // data
                                sizeof(csw_inquiry),             // length
                                NULL,                            // actual length (not sure if null correct)
-                               TIMEOUT );                       // timeout
+                               BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
     if ( r != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to receive CSW\n");
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
@@ -287,7 +287,7 @@ int inquiry ( libusb_device_handle * device_handle ) {
                                    (unsigned char *)&cbw_inquiry,   // data
                                    sizeof(cbw_inquiry),             // length
                                    &transferred,                    // actual transfer length
-                                   TIMEOUT );                       // timeout
+                                   BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
     if ( r != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to send CBW\n");
         fprintf(stderr, "Transferred bytes: %d\n", transferred );
@@ -301,7 +301,7 @@ int inquiry ( libusb_device_handle * device_handle ) {
                                rec_data,                        // data
                                sizeof(rec_data),                // length
                                NULL,                            // actual transfer length
-                               TIMEOUT );                       // timeout
+                               BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
     if ( r != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to receive data\n");
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
@@ -311,6 +311,62 @@ int inquiry ( libusb_device_handle * device_handle ) {
         return 0;
     decode_inq_data(rec_data);
     return 1;
+}
+
+void decode_req_sense_data ( unsigned char * data ) {
+    printf("Sense key: ");
+    switch ( data[2] & 0xF ) {
+        case 0x0:
+            printf("No Sense\n");
+            break;
+        case 0x1:
+            printf("Recovered Error\n");
+            break;
+        case 0x2:
+            printf("Not Ready\n");
+            break;
+        case 0x3:
+            printf("Medium Error\n");
+            break;
+        case 0x4:
+            printf("Hardware Error\n");
+            break;
+        case 0x5:
+            printf("Illegal Request\n");
+            break;
+        case 0x6:
+            printf("Unit Attention\n");
+            break;
+        case 0x7:
+            printf("Data Protect\n");
+            break;
+        case 0x8:
+            printf("Blank Check\n");
+            break;
+        case 0x9:
+            printf("Vendor Specific\n");
+            break;
+        case 0xA:
+            printf("Copy Aborted\n");
+            break;
+        case 0xB:
+            printf("Aborted Command\n");
+            break;
+        case 0xC:
+            printf("Equal\n");
+            break;
+        case 0xD:
+            printf("Volume Overflow\n");
+            break;
+        case 0xE:
+            printf("Miscompare\n");
+            break;
+        case 0xF:
+            printf("Reserved\n");
+            break;
+    }
+    printf("Additional sense code: 0x%X\n", data[12]);
+    printf("Additional sense code qualifier: 0x%X\n", data[13]);
 }
 
 int req_sense ( libusb_device_handle * device_handle ) {
@@ -334,7 +390,7 @@ int req_sense ( libusb_device_handle * device_handle ) {
                                    (unsigned char *)&cbw_req_sense, // data
                                    sizeof(cbw_req_sense),           // length
                                    &transferred,                    // actual transfer length
-                                   TIMEOUT );                       // timeout
+                                   BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
     if ( r != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to send CBW\n");
         fprintf(stderr, "Transferred bytes: %d\n", transferred );
@@ -348,7 +404,7 @@ int req_sense ( libusb_device_handle * device_handle ) {
                                rec_data,                        // data
                                sizeof(rec_data),                // length
                                NULL,                            // actual transfer length
-                               TIMEOUT );                       // timeout
+                               BULK_TRANSFER_TIMEOUT );         // BULK_TRANSFER_TIMEOUT
     if ( r != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to receive data\n");
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
@@ -356,6 +412,7 @@ int req_sense ( libusb_device_handle * device_handle ) {
     }
     if ( ! check_csw ( device_handle ) )
         return 0;
+    decode_req_sense_data(rec_data);
     return 1;
 }
 
@@ -376,7 +433,7 @@ int main ( void ) {
 
     printf ("Max LUN: %d\n", get_max_lun(device_handle));
 
-    if ( ! inquiry(device_handle) ) {
+    if ( ! inquiry(device_handle) || ! req_sense(device_handle) ) {
         destroy_device(device_handle);
         return 1;
     }
