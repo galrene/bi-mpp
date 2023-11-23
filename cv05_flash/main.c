@@ -46,13 +46,6 @@ typedef struct __attribute__((packed)) {
 } CSW_t;
 
 void fill_inquiry_cbw(CBW_t *cbw) {
-    // Refer to the "spc3r23.pdf" document for details on the INQUIRY command
-    /**
-     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer. 
-     * - na endpoint out, buffer: &cbw, size: sizeof(cbw) 
-     * - na endpoint in, buffer: pro data, size: 36 
-     * - na endpoint in, buffer: &csw, size: sizeof(csw).
-     */
     cbw->dCBWSignature = USBC_SIGNATURE;
     cbw->dCBWTag = 0x12345678;
     cbw->dCBWDataTransferLength = 36;
@@ -69,12 +62,6 @@ void fill_inquiry_cbw(CBW_t *cbw) {
 }
 
 void fill_request_sense_cbw(CBW_t *cbw) {
-    /**
-     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
-     * - na endpoint out, buffer: &cbw, size: sizeof(cbw) 
-     * - na endpoint in, buffer: pro data, size: 18 
-     * - na endpoint in, buffer: &csw, size: sizeof(csw).
-     */
     cbw->dCBWSignature = USBC_SIGNATURE;
     cbw->dCBWTag = 0x02345678;
     cbw->dCBWDataTransferLength = 18;
@@ -239,6 +226,7 @@ void destroy_device ( struct libusb_device_handle *device ) {
 }
 
 #define INQUIRY_DATA_LEN 36
+#define REQ_SENSE_DATA_LEN 18
 
 void decode_inq_data ( unsigned char * data ) {
     printf("Vendor ID: ");
@@ -249,6 +237,34 @@ void decode_inq_data ( unsigned char * data ) {
     for ( int i = 16; i < 32; i ++ )
         printf("%c", data[i]);
     printf("\n");
+}
+
+int check_csw ( libusb_device_handle * handle ) {
+    CSW_t csw_inquiry;
+    // receive status
+    int r = libusb_bulk_transfer ( handle,                          // dev handle
+                               ENDPOINT_IN,                     // endpoint
+                               (unsigned char *)&csw_inquiry,   // data
+                               sizeof(csw_inquiry),             // length
+                               NULL,                            // actual length (not sure if null correct)
+                               TIMEOUT );                       // timeout
+    if ( r != LIBUSB_SUCCESS ) {
+        fprintf(stderr, "Unable to receive CSW\n");
+        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+        return 0;
+    }
+    
+    if ( csw_inquiry.bCSWStatus != LIBUSB_SUCCESS ) {
+        fprintf(stderr, "CSW status error\n");
+        fprintf(stderr, "CSW status: %d\n", csw_inquiry.bCSWStatus);
+        return 0;
+    }
+    if ( csw_inquiry.dCSWSignature != CSW_SIGNATURE ) {
+        fprintf(stderr, "CSW signature mismatch\n");
+        fprintf(stderr, "CSW signature: 0x%X\nExpected: 0x%X\n", csw_inquiry.dCSWSignature, CSW_SIGNATURE);
+        return 0;
+    }
+    return 1;
 }
 
 int inquiry ( libusb_device_handle * device_handle ) {
@@ -276,7 +292,7 @@ int inquiry ( libusb_device_handle * device_handle ) {
         fprintf(stderr, "Unable to send CBW\n");
         fprintf(stderr, "Transferred bytes: %d\n", transferred );
         fprintf(stderr, "Error: %s\n", libusb_strerror(r));
-        return 1;
+        return 0;
     }
     unsigned char rec_data[INQUIRY_DATA_LEN];
     // receive data
@@ -289,34 +305,58 @@ int inquiry ( libusb_device_handle * device_handle ) {
     if ( r != LIBUSB_SUCCESS ) {
         fprintf(stderr, "Unable to receive data\n");
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
-        return 1;
+        return 0;
     }
-    CSW_t csw_inquiry;
-    // receive status
+    if ( ! check_csw(device_handle) )
+        return 0;
+    decode_inq_data(rec_data);
+    return 1;
+}
+
+int req_sense ( libusb_device_handle * device_handle ) {
+    /**
+     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
+     * - na endpoint out, buffer: &cbw, size: sizeof(cbw) 
+     * - na endpoint in, buffer: pro data, size: 18 
+     * - na endpoint in, buffer: &csw, size: sizeof(csw).
+     */
+    /**
+     * Pomocí funkcí Libusb pošlete CBW(REQUEST SENSE) do USB flash paměti a přečtěte dodaná data a CSW blok.
+     * Zkontrolujte status v CSW bloku a dekodujte datovou část.    
+     *
+     */
+    CBW_t cbw_req_sense;
+    fill_request_sense_cbw(&cbw_req_sense);
+    int transferred = 0;
+    // send an req sense
+    int r = libusb_bulk_transfer ( device_handle,                   // dev handle
+                                   ENDPOINT_OUT,                    // endpoint
+                                   (unsigned char *)&cbw_req_sense, // data
+                                   sizeof(cbw_req_sense),           // length
+                                   &transferred,                    // actual transfer length
+                                   TIMEOUT );                       // timeout
+    if ( r != LIBUSB_SUCCESS ) {
+        fprintf(stderr, "Unable to send CBW\n");
+        fprintf(stderr, "Transferred bytes: %d\n", transferred );
+        fprintf(stderr, "Error: %s\n", libusb_strerror(r));
+        return 0;
+    }
+    unsigned char rec_data[REQ_SENSE_DATA_LEN];
+    // receive data
     r = libusb_bulk_transfer ( device_handle,                   // dev handle
                                ENDPOINT_IN,                     // endpoint
-                               (unsigned char *)&csw_inquiry,   // data
-                               sizeof(csw_inquiry),             // length
-                               NULL,                            // actual length (not sure if null correct)
+                               rec_data,                        // data
+                               sizeof(rec_data),                // length
+                               NULL,                            // actual transfer length
                                TIMEOUT );                       // timeout
     if ( r != LIBUSB_SUCCESS ) {
-        fprintf(stderr, "Unable to receive CSW\n");
+        fprintf(stderr, "Unable to receive data\n");
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
-        return 1;
+        return 0;
     }
-    
-    if ( csw_inquiry.bCSWStatus != LIBUSB_SUCCESS ) {
-        fprintf(stderr, "CSW status error\n");
-        fprintf(stderr, "CSW status: %d\n", csw_inquiry.bCSWStatus);
-        return 1;
-    }
-    if ( csw_inquiry.dCSWSignature != CSW_SIGNATURE ) {
-        fprintf(stderr, "CSW signature mismatch\n");
-        fprintf(stderr, "CSW signature: 0x%X\nExpected: 0x%X\n", csw_inquiry.dCSWSignature, CSW_SIGNATURE);
-        return 1;
-    }
-    decode_inq_data(rec_data);
-    return 0;
+    if ( ! check_csw ( device_handle ) )
+        return 0;
+    return 1;
 }
 
 int main ( void ) {
