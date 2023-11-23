@@ -433,7 +433,7 @@ TReadCapacityData decode_read_capacity_data ( unsigned char * data ) {
     uint64_t capacity = (uint64_t)(mlba+1) * blength;
     printf("Last logical block address: 0x%X\n", mlba);
     printf("Block length: %d\n", blength);
-    printf("Disk capacity:\t%ldB\n\t\t%ldGiB\n", capacity, capacity/1024/1024/1024);
+    printf("Disk capacity:\t%ldB\n\t\t~%ldGiB\n", capacity, capacity/1024/1024/1024);
     printf("==========================\n");
     TReadCapacityData read_capacity_data;
     read_capacity_data.m_Mlba = mlba;
@@ -467,6 +467,45 @@ int read_capacity ( libusb_device_handle * device_handle, TReadCapacityData * re
         return 0;
     *read_capacity_data = decode_read_capacity_data(rec_data);
     return 1;
+}
+/**
+ * @brief Attempted to decode according to the Structure of a modern standard MBR
+ *        https://en.wikipedia.org/wiki/Master_boot_record#Sector_layout
+ * 
+ * @param rec_data 
+ * @param length 
+ */
+void decode_master_boot ( unsigned char * rec_data, int length ) {
+    printf("====Reading master boot====\n");
+    printf("Bootstrap code area (part 1)\n");
+    for ( int i = 0 ; i < 218; i ++ )
+        printf("%c", rec_data[i]);
+    printf("\nDisk timestamp/OEM loader signature\n");
+    for ( int i = 0 ; i < 6; i ++ )
+        printf("%02X", rec_data[218 + i]);
+    printf("\nBootstrap code area (part 2, code entry at 0x0000)\n");
+    for ( int i = 0 ; i < 216; i ++ )
+        printf("%02X", rec_data[224 + i]);
+    printf("\n32-bit disk signature\n");
+    for ( int i = 0 ; i < 4; i ++ )
+        printf("%02X", rec_data[440 + i]);
+    printf("\n");
+    printf( rec_data[444] == 0x5A5A ? "copy-protected" : "not copy-protected");
+    printf("\nPartition entry no.1\n");
+    for ( int i = 0 ; i < 16; i ++ )
+        printf("%02X", rec_data[446 + i]);
+    printf("\nPartition entry no.2\n");
+    for ( int i = 0 ; i < 16; i ++ )
+        printf("%02X", rec_data[462 + i]);
+    printf("\nPartition entry no.3\n");
+    for ( int i = 0 ; i < 16; i ++ )
+        printf("%02X", rec_data[478 + i]);
+    printf("\nPartition entry no.4\n");
+    for ( int i = 0 ; i < 16; i ++ )
+        printf("%02X", rec_data[494 + i]);
+    printf("\nBoot signature (0x55AA expected for master boot record)\n");
+    printf("%02X%02X\n", rec_data[510], rec_data[511]);
+    printf("=================\n");
 }
 
 /**
@@ -503,9 +542,13 @@ int read_data ( libusb_device_handle * device_handle, TReadCapacityData * read_c
             free ( rec_data );
             return 0;
         }
-    for ( uint32_t i = 446; i < read_capacity_data->m_Blength * BC; i++ )
-        printf("%X", rec_data[i]);
-    // decode_read_data(rec_data);
+    
+    if ( LBA == 0 && BC == 1 )
+        decode_master_boot ( rec_data, read_capacity_data->m_Blength * BC );
+    else {
+        printf("Data:\n");
+        print_hex(rec_data, read_capacity_data->m_Blength * BC);
+    }
     free ( rec_data );
     return 1;
 }
@@ -530,7 +573,8 @@ int main ( void ) {
     if (   ! inquiry(device_handle)
         || ! req_sense(device_handle)
         || ! read_capacity(device_handle, &capacity_data)
-        || ! read_data(device_handle, &capacity_data, 0, 4) ) {
+        || ! read_data(device_handle, &capacity_data, 0, 1) )
+    {
         destroy_device(device_handle);
         return 1;
     }
