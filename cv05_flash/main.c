@@ -104,6 +104,7 @@ void fill_read_capacity_cbw(CBW_t *cbw) {
  * @param cbw 
  * @param blen 
  * @param BC BC = BC1«8+BC0 je délka přenášených dat v blocích.
+ * @param LBA last block address
  */
 void fill_read_10_cbw(CBW_t *cbw, int blen, int BC, char * LBA) {
     /**
@@ -377,18 +378,25 @@ int req_sense ( libusb_device_handle * device_handle ) {
     return 1;
 }
 
-void decode_read_capacity_data ( unsigned char * data ) {
+typedef struct read_capacity_data {
+    uint32_t m_Mlba;     // address of the last logical block
+    uint32_t m_Blength;  // block length in bytes
+    uint64_t m_Capacity; // disk capacity in bytes
+} TReadCapacityData;
+
+TReadCapacityData decode_read_capacity_data ( unsigned char * data ) {
     printf("====READ CAPACITY DATA====\n");
     uint32_t mlba = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
     uint32_t blength = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
-    uint64_t capacity = (mlba+1) * blength;
+    uint64_t capacity = (uint64_t)(mlba+1) * blength;
     printf("Last logical block address: 0x%X\n", mlba);
     printf("Block length: %d\n", blength);
-    printf("Disk capacity: %ld\n", capacity);
+    printf("Disk capacity:\t%ldB\n\t\t%ldGiB\n", capacity, capacity/1024/1024/1024);
     printf("==========================\n");
+    return {mlba, blength, capacity};
 }
 
-int read_capacity ( libusb_device_handle * device_handle ) {
+int read_capacity ( libusb_device_handle * device_handle, TReadCapacityData * read_capacity_data ) {
     /* Pomocí funkcí Libusb pošlete CBW(READ CAPACITY) do USB flash
        paměti a přečtěte dodaná data a CSW blok. Zkontrolujte status
         v CSW bloku, zjistěte maximalní hodnotu LBA a velikost bloku. Spočtěte kapacitu disku.
@@ -411,7 +419,7 @@ int read_capacity ( libusb_device_handle * device_handle ) {
         return 0;
     if ( ! check_csw ( device_handle ) )
         return 0;
-    decode_read_capacity_data(rec_data);
+    *read_capacity_data = decode_read_capacity_data(rec_data);
     return 1;
 }
 
@@ -432,9 +440,10 @@ int main ( void ) {
 
     printf ("Max LUN: %d\n", get_max_lun(device_handle));
 
+    TReadCapacityData capacity_data;
     if (   ! inquiry(device_handle)
         || ! req_sense(device_handle)
-        || ! read_capacity(device_handle) ) {
+        || ! read_capacity(device_handle, &capacity_data) ) {
         destroy_device(device_handle);
         return 1;
     }
