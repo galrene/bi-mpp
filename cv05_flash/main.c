@@ -99,14 +99,11 @@ void fill_read_capacity_cbw(CBW_t *cbw) {
 }
 
 /**
- * @brief UNFINISHED, CBWCB not filled
- * 
- * @param cbw 
- * @param blen 
- * @param BC BC = BC1«8+BC0 je délka přenášených dat v blocích.
- * @param LBA last block address
+ * @param blen block length - how many bytes in one block
+ * @param BC   BC = BC1«8+BC0 block count - how many blocks to read
+ * @param LBA  logical block address - where to start reading
  */
-void fill_read_10_cbw(CBW_t *cbw, int blen, int BC, char * LBA) {
+void fill_read_10_cbw(CBW_t *cbw, uint32_t blen, uint16_t BC, uint32_t LBA) {
     cbw->dCBWSignature = USBC_SIGNATURE;
     cbw->dCBWTag = 0x00045678;
     cbw->dCBWDataTransferLength = blen * BC;
@@ -115,13 +112,13 @@ void fill_read_10_cbw(CBW_t *cbw, int blen, int BC, char * LBA) {
     cbw->bCBWCBLength = 10;
     cbw->CBWCB[0] = SCSI_READ_10;
     cbw->CBWCB[1] = 0x00;
-    cbw->CBWCB[2] = 0x00; // LBA3
-    cbw->CBWCB[3] = 0x00; // LBA2
-    cbw->CBWCB[4] = 0x00; // LBA1
-    cbw->CBWCB[5] = 0x00; // LBA0
+    cbw->CBWCB[2] = LBA >> 24;
+    cbw->CBWCB[3] = LBA >> 16;
+    cbw->CBWCB[4] = LBA >> 8;
+    cbw->CBWCB[5] = LBA;
     cbw->CBWCB[6] = 0x00;
-    cbw->CBWCB[7] = 0x00; // BC1 - transfer length in blocks
-    cbw->CBWCB[8] = 0x00; // BC0
+    cbw->CBWCB[7] = BC >> 8;
+    cbw->CBWCB[8] = BC;
     cbw->CBWCB[9] = 0x00;
 }
 
@@ -472,6 +469,45 @@ int read_capacity ( libusb_device_handle * device_handle, TReadCapacityData * re
     return 1;
 }
 
+/**
+ * @param device_handle 
+ * @param read_capacity_data device information read using read capacity command
+ * @param LBA addres from which block to start reading
+ * @param BC  number of blocks to read
+ * @return int 1 == success, 0 == failure
+ */
+int read_data ( libusb_device_handle * device_handle, TReadCapacityData * read_capacity_data,
+                uint32_t LBA, uint16_t BC ) {
+    /**
+     * LBA = (LBA3«24)(LBA2«16)(LBA1«8)+LBA0
+     * BC = (BC1«8)+BC0
+     * 
+     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
+     * - na endpoint out, buffer: &cbw, size: sizeof(cbw)
+     * - na endpoint in, buffer: pro data, size: blen * BC
+     * - na endpoint in, buffer: &csw, size: sizeof(csw).
+     */
+    if ( LBA < 0 || LBA > read_capacity_data->m_Mlba )
+        return 0;
+    if ( BC < 0 || BC > 0xFFFF )
+        return 0;
+
+    CBW_t cbw_read_data;
+    fill_read_10_cbw(&cbw_read_data, read_capacity_data->m_Blength, BC, LBA);
+    if ( ! send_cbw ( device_handle, &cbw_read_data ) )
+        return 0;
+    unsigned char * rec_data = (unsigned char *) malloc ( read_capacity_data->m_Blength * BC );
+    if (    ! receive_data ( device_handle, rec_data, read_capacity_data->m_Blength * BC )
+         || ! check_csw ( device_handle ) )
+        {
+            free ( rec_data );
+            return 0;
+        }
+    decode_read_data(rec_data);
+    free ( rec_data );
+    return 1;
+}
+    
 int main ( void ) {
     libusb_init(NULL);
     libusb_device_handle *device_handle = find_mass_storage_device();
