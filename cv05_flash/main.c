@@ -438,7 +438,8 @@ libusb_device_handle * find_mass_storage_device ( void ) {
             fprintf(stderr, "Unable to get device descriptor\n");
             continue;
         }
-        if ( desc.bDeviceClass == 0 || desc.bDeviceClass == 8 ) {
+        
+        if ( desc.bDeviceClass == LIBUSB_CLASS_MASS_STORAGE ) {
             r = libusb_open(device, &device_handle);
             if ( r < 0 ) {
                 fprintf(stderr, "Unable to open device\n");
@@ -446,6 +447,30 @@ libusb_device_handle * find_mass_storage_device ( void ) {
             }
             break;
         }
+        if ( desc.bDeviceClass == LIBUSB_CLASS_PER_INTERFACE ) {
+            // open interface and check bInterfaceClass
+            struct libusb_config_descriptor *config;
+            r = libusb_get_config_descriptor(device, 0, &config);
+            if ( r < 0 ) {
+                fprintf(stderr, "Unable to get config descriptor\n");
+                continue;
+            }
+            const struct libusb_interface *inter;
+            const struct libusb_interface_descriptor *interdesc;
+            inter = &config->interface[0];
+            for ( int j = 0 ; j < inter->num_altsetting ; j ++ ) {
+                interdesc = &inter->altsetting[j];
+                if ( interdesc->bInterfaceClass == LIBUSB_CLASS_MASS_STORAGE ) {
+                    r = libusb_open(device, &device_handle);
+                    if ( r < 0 ) {
+                        fprintf(stderr, "Unable to open device\n");
+                        continue;
+                    }
+                    break;
+                }
+            }
+            libusb_free_config_descriptor(config);
+        } 
     }
     libusb_free_device_list(devs, 1);
     return device_handle;
