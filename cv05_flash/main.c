@@ -107,12 +107,6 @@ void fill_read_capacity_cbw(CBW_t *cbw) {
  * @param LBA last block address
  */
 void fill_read_10_cbw(CBW_t *cbw, int blen, int BC, char * LBA) {
-    /**
-     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
-     * - na endpoint out, buffer: &cbw, size: sizeof(cbw)
-     * - na endpoint in, buffer: pro data, size: blen * BC
-     * - na endpoint in, buffer: &csw, size: sizeof(csw).
-     */
     cbw->dCBWSignature = USBC_SIGNATURE;
     cbw->dCBWTag = 0x00045678;
     cbw->dCBWDataTransferLength = blen * BC;
@@ -148,6 +142,59 @@ void fill_write_10_cbw(CBW_t *cbw, int blen, int BC) {
     cbw->CBWCB[7] = 0x00; // BC1 - transfer length in blocks
     cbw->CBWCB[8] = 0x00; // BC0
     cbw->CBWCB[9] = 0x00;
+}
+libusb_device_handle * find_mass_storage_device ( void ) {
+    libusb_device **devs;
+    ssize_t cnt = libusb_get_device_list(NULL, &devs);
+    if ( cnt < 0 ) {
+        fprintf(stderr, "Unable to get device list\n");
+        return NULL;
+    }
+    libusb_device_handle *device_handle = NULL;
+    for ( ssize_t i = 0 ; i < cnt ; i ++ ) {
+        libusb_device *device = devs[i];
+        struct libusb_device_descriptor desc;
+        int r = libusb_get_device_descriptor(device, &desc);
+        if ( r < 0 ) {
+            fprintf(stderr, "Unable to get device descriptor\n");
+            continue;
+        }
+        
+        if ( desc.bDeviceClass == LIBUSB_CLASS_MASS_STORAGE ) {
+            r = libusb_open(device, &device_handle);
+            if ( r < 0 ) {
+                fprintf(stderr, "Unable to open device\n");
+                continue;
+            }
+            break;
+        }
+        if ( desc.bDeviceClass == LIBUSB_CLASS_PER_INTERFACE ) {
+            // open interface and check bInterfaceClass
+            struct libusb_config_descriptor *config;
+            r = libusb_get_config_descriptor(device, 0, &config);
+            if ( r < 0 ) {
+                fprintf(stderr, "Unable to get config descriptor\n");
+                continue;
+            }
+            const struct libusb_interface *inter;
+            const struct libusb_interface_descriptor *interdesc;
+            inter = &config->interface[0];
+            for ( int j = 0 ; j < inter->num_altsetting ; j ++ ) {
+                interdesc = &inter->altsetting[j];
+                if ( interdesc->bInterfaceClass == LIBUSB_CLASS_MASS_STORAGE ) {
+                    r = libusb_open(device, &device_handle);
+                    if ( r < 0 ) {
+                        fprintf(stderr, "Unable to open device\n");
+                        continue;
+                    }
+                    break;
+                }
+            }
+            libusb_free_config_descriptor(config);
+        } 
+    }
+    libusb_free_device_list(devs, 1);
+    return device_handle;
 }
 
 void print_endpoint_descriptors ( libusb_device_handle * handle ) {
@@ -391,7 +438,11 @@ TReadCapacityData decode_read_capacity_data ( unsigned char * data ) {
     printf("Block length: %d\n", blength);
     printf("Disk capacity:\t%ldB\n\t\t%ldGiB\n", capacity, capacity/1024/1024/1024);
     printf("==========================\n");
-    return {mlba, blength, capacity};
+    TReadCapacityData read_capacity_data;
+    read_capacity_data.m_Mlba = mlba;
+    read_capacity_data.m_Blength = blength;
+    read_capacity_data.m_Capacity = capacity;
+    return read_capacity_data;
 }
 
 int read_capacity ( libusb_device_handle * device_handle, TReadCapacityData * read_capacity_data ) {
@@ -420,62 +471,6 @@ int read_capacity ( libusb_device_handle * device_handle, TReadCapacityData * re
     *read_capacity_data = decode_read_capacity_data(rec_data);
     return 1;
 }
-
-// read usb device list and return device handle of the one with bInterfaceClass = 8
-libusb_device_handle * find_mass_storage_device ( void ) {
-    libusb_device **devs;
-    ssize_t cnt = libusb_get_device_list(NULL, &devs);
-    if ( cnt < 0 ) {
-        fprintf(stderr, "Unable to get device list\n");
-        return NULL;
-    }
-    libusb_device_handle *device_handle = NULL;
-    for ( ssize_t i = 0 ; i < cnt ; i ++ ) {
-        libusb_device *device = devs[i];
-        struct libusb_device_descriptor desc;
-        int r = libusb_get_device_descriptor(device, &desc);
-        if ( r < 0 ) {
-            fprintf(stderr, "Unable to get device descriptor\n");
-            continue;
-        }
-        
-        if ( desc.bDeviceClass == LIBUSB_CLASS_MASS_STORAGE ) {
-            r = libusb_open(device, &device_handle);
-            if ( r < 0 ) {
-                fprintf(stderr, "Unable to open device\n");
-                continue;
-            }
-            break;
-        }
-        if ( desc.bDeviceClass == LIBUSB_CLASS_PER_INTERFACE ) {
-            // open interface and check bInterfaceClass
-            struct libusb_config_descriptor *config;
-            r = libusb_get_config_descriptor(device, 0, &config);
-            if ( r < 0 ) {
-                fprintf(stderr, "Unable to get config descriptor\n");
-                continue;
-            }
-            const struct libusb_interface *inter;
-            const struct libusb_interface_descriptor *interdesc;
-            inter = &config->interface[0];
-            for ( int j = 0 ; j < inter->num_altsetting ; j ++ ) {
-                interdesc = &inter->altsetting[j];
-                if ( interdesc->bInterfaceClass == LIBUSB_CLASS_MASS_STORAGE ) {
-                    r = libusb_open(device, &device_handle);
-                    if ( r < 0 ) {
-                        fprintf(stderr, "Unable to open device\n");
-                        continue;
-                    }
-                    break;
-                }
-            }
-            libusb_free_config_descriptor(config);
-        } 
-    }
-    libusb_free_device_list(devs, 1);
-    return device_handle;
-}
-
 
 int main ( void ) {
     libusb_init(NULL);
