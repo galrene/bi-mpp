@@ -14,7 +14,6 @@
 
 // USB requests
 #define REQUEST_GET_MAX_LUN 0xFE
-#define REQUEST_BULK_RESET 0xFF
 
 // SCSI commands
 #define SCSI_INQUIRY 0x12
@@ -25,6 +24,10 @@
 
 #define DATA_IN 0x80
 #define DATA_OUT 0x00
+
+#define INQUIRY_DATA_LEN 36
+#define REQ_SENSE_DATA_LEN 18
+#define READ_CAPACITY_DATA_LEN 8
 
 // Wrapper structure for USB Mass Storage Bulk-Only commands
 typedef struct __attribute__((packed)) {
@@ -134,7 +137,7 @@ void fill_write_10_cbw(CBW_t *cbw, int blen, int BC) {
     cbw->bmCBWFlags = DATA_IN;
     cbw->bCBWLUN = 0;
     cbw->bCBWCBLength = 10;
-    cbw->CBWCB[0] = SCSI_READ_10;
+    cbw->CBWCB[0] = SCSI_WRITE_10;
     cbw->CBWCB[1] = 0x00;
     cbw->CBWCB[2] = 0x00; // LogicalBlocakAddress3
     cbw->CBWCB[3] = 0x00; // LBA2
@@ -215,10 +218,6 @@ void destroy_device ( struct libusb_device_handle *device ) {
     libusb_close(device);
     libusb_exit(NULL);
 }
-
-#define INQUIRY_DATA_LEN 36
-#define REQ_SENSE_DATA_LEN 18
-#define READ_CAPACITY_DATA_LEN 8
 
 void decode_inq_data ( unsigned char * data ) {
     printf("======INQUIRY DATA======\n");
@@ -380,8 +379,12 @@ int req_sense ( libusb_device_handle * device_handle ) {
 
 void decode_read_capacity_data ( unsigned char * data ) {
     printf("====READ CAPACITY DATA====\n");
-    printf("Last logical block address: 0x%02X%02X%02X%02X\n", data[0], data[1], data[2], data[3]);
-    printf("Block length: 0x%02X%02X%02X%02X\n", data[4], data[5], data[6], data[7]);
+    uint32_t mlba = (data[0] << 24) | (data[1] << 16) | (data[2] << 8) | data[3];
+    uint32_t blength = (data[4] << 24) | (data[5] << 16) | (data[6] << 8) | data[7];
+    uint64_t capacity = (mlba+1) * blength;
+    printf("Last logical block address: 0x%X\n", mlba);
+    printf("Block length: %d\n", blength);
+    printf("Disk capacity: %ld\n", capacity);
     printf("==========================\n");
 }
 
@@ -429,7 +432,9 @@ int main ( void ) {
 
     printf ("Max LUN: %d\n", get_max_lun(device_handle));
 
-    if ( ! inquiry(device_handle) || ! req_sense(device_handle) ) {
+    if (   ! inquiry(device_handle)
+        || ! req_sense(device_handle)
+        || ! read_capacity(device_handle) ) {
         destroy_device(device_handle);
         return 1;
     }
