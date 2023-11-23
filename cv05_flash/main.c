@@ -439,6 +439,11 @@ int main ( void ) {
         return 1;
     }
 
+    /**
+     *  Přečtěte masterboot - sektor 0 (povinné) a vytiskněte položky partition table (dobrovolné).
+     *  Dobří programátoři se mohou pokusit o vypsání položek hlavního adresáře disku,
+     *  pokud bude naformátován na filesystem FAT.
+     */
 
     destroy_device(device_handle);
     return 0;
