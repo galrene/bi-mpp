@@ -229,6 +229,17 @@ void destroy_device ( struct libusb_device_handle *device ) {
 #define REQ_SENSE_DATA_LEN 18
 
 void decode_inq_data ( unsigned char * data ) {
+    printf("======INQUIRY DATA======\n");
+    printf("Peripheral Qualifier: 0x%02X\n", data[0]);
+    printf("Peripheral Device Type: 0x%02X\n", data[0]);
+    printf("RMB: 0x%02X\n", data[1]);
+    printf("ISO Version: 0x%02X\n", data[2]);
+    printf("ECMA Version: 0x%02X\n", data[3]);
+    printf("ANSI Version: 0x%02X\n", data[4]);
+    printf("Additional Length: 0x%02X\n", data[5]);
+    printf("SCCS: 0x%02X\n", data[6]);
+    printf("BQue: 0x%02X\n", data[7]);
+    printf("CmdQue: 0x%02X\n", data[8]);
     printf("Vendor ID: ");
     for ( int i = 8; i < 16; i ++ )
         printf("%c", data[i]);
@@ -236,7 +247,7 @@ void decode_inq_data ( unsigned char * data ) {
     printf("Product ID: ");
     for ( int i = 16; i < 32; i ++ )
         printf("%c", data[i]);
-    printf("\n");
+    printf("\n========================\n");
 }
 
 int check_csw ( libusb_device_handle * handle ) {
@@ -314,59 +325,28 @@ int inquiry ( libusb_device_handle * device_handle ) {
 }
 
 void decode_req_sense_data ( unsigned char * data ) {
-    printf("Sense key: ");
-    switch ( data[2] & 0xF ) {
-        case 0x0:
-            printf("No Sense\n");
-            break;
-        case 0x1:
-            printf("Recovered Error\n");
-            break;
-        case 0x2:
-            printf("Not Ready\n");
-            break;
-        case 0x3:
-            printf("Medium Error\n");
-            break;
-        case 0x4:
-            printf("Hardware Error\n");
-            break;
-        case 0x5:
-            printf("Illegal Request\n");
-            break;
-        case 0x6:
-            printf("Unit Attention\n");
-            break;
-        case 0x7:
-            printf("Data Protect\n");
-            break;
-        case 0x8:
-            printf("Blank Check\n");
-            break;
-        case 0x9:
-            printf("Vendor Specific\n");
-            break;
-        case 0xA:
-            printf("Copy Aborted\n");
-            break;
-        case 0xB:
-            printf("Aborted Command\n");
-            break;
-        case 0xC:
-            printf("Equal\n");
-            break;
-        case 0xD:
-            printf("Volume Overflow\n");
-            break;
-        case 0xE:
-            printf("Miscompare\n");
-            break;
-        case 0xF:
-            printf("Reserved\n");
-            break;
-    }
-    printf("Additional sense code: 0x%X\n", data[12]);
-    printf("Additional sense code qualifier: 0x%X\n", data[13]);
+    printf("====REQUEST SENSE DATA====\n");
+    printf("Response code: 0x%02X\n", data[0] & 0x7F);
+    printf("Filemark: %s\n", (data[2] & 0x80) ? "yes" : "no");
+    printf("EOM: %s\n", (data[2] & 0x40) ? "yes" : "no");
+    printf("ILI: %s\n", (data[2] & 0x20) ? "yes" : "no");
+    printf("Sense key: 0x%02X\n", data[2] & 0x0F);
+    printf("Information: ");
+    for ( int i = 3 ; i < 7; i ++ )
+        printf("0x%02X ", data[i]);
+    printf("\n");
+    printf("Additional sense length: 0x%02X\n", data[7]);
+    printf("Command specific information: ");
+    for ( int i = 8 ; i < 12; i ++ )
+        printf("0x%02X ", data[i]);
+    printf("\n");
+    printf("Additional sense code: 0x%02X\n", data[12]);
+    printf("Additional sense code qualifier: 0x%02X\n", data[13]);
+    printf("Field replaceable unit code: 0x%02X\n", data[14]);
+    printf("Sense key specific: ");
+    for ( int i = 15 ; i < 18; i ++ )
+        printf("0x%02X ", data[i]);
+    printf("\n==========================\n");
 }
 
 int req_sense ( libusb_device_handle * device_handle ) {
