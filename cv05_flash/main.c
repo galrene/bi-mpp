@@ -241,8 +241,14 @@ void destroy_device ( struct libusb_device_handle *device ) {
 #define INQUIRY_DATA_LEN 36
 
 void decode_inq_data ( unsigned char * data ) {
-    printf("Vendor ID: %02X%02X%02X%02X\n", data[8], data[9], data[10], data[11]);
-    printf("Product ID: %02X%02X%02X%02X\n", data[16], data[17], data[18], data[19]);
+    printf("Vendor ID: ");
+    for ( int i = 8; i < 16; i ++ )
+        printf("%c", data[i]);
+    printf("\n");
+    printf("Product ID: ");
+    for ( int i = 16; i < 32; i ++ )
+        printf("%c", data[i]);
+    printf("\n");
 }
 
 int inquiry ( libusb_device_handle * device_handle ) {
