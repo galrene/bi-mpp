@@ -503,7 +503,9 @@ int read_data ( libusb_device_handle * device_handle, TReadCapacityData * read_c
             free ( rec_data );
             return 0;
         }
-    decode_read_data(rec_data);
+    for ( uint32_t i = 446; i < read_capacity_data->m_Blength * BC; i++ )
+        printf("%X", rec_data[i]);
+    // decode_read_data(rec_data);
     free ( rec_data );
     return 1;
 }
@@ -527,7 +529,8 @@ int main ( void ) {
     TReadCapacityData capacity_data;
     if (   ! inquiry(device_handle)
         || ! req_sense(device_handle)
-        || ! read_capacity(device_handle, &capacity_data) ) {
+        || ! read_capacity(device_handle, &capacity_data)
+        || ! read_data(device_handle, &capacity_data, 0, 4) ) {
         destroy_device(device_handle);
         return 1;
     }
