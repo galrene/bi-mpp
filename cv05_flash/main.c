@@ -122,22 +122,22 @@ void fill_read_10_cbw(CBW_t *cbw, uint32_t blen, uint16_t BC, uint32_t LBA) {
     cbw->CBWCB[9] = 0x00;
 }
 
-void fill_write_10_cbw(CBW_t *cbw, int blen, int BC) {
+void fill_write_10_cbw(CBW_t *cbw, uint32_t blen, uint16_t BC, uint32_t LBA) {
     cbw->dCBWSignature = USBC_SIGNATURE;
     cbw->dCBWTag = 0x00045678;
     cbw->dCBWDataTransferLength = blen * BC;
-    cbw->bmCBWFlags = DATA_IN;
+    cbw->bmCBWFlags = DATA_OUT; // Todo: not sure
     cbw->bCBWLUN = 0;
     cbw->bCBWCBLength = 10;
     cbw->CBWCB[0] = SCSI_WRITE_10;
     cbw->CBWCB[1] = 0x00;
-    cbw->CBWCB[2] = 0x00; // LogicalBlocakAddress3
-    cbw->CBWCB[3] = 0x00; // LBA2
-    cbw->CBWCB[4] = 0x00; // LBA1
-    cbw->CBWCB[5] = 0x00; // LBA0
+    cbw->CBWCB[2] = LBA >> 24;
+    cbw->CBWCB[3] = LBA >> 16;
+    cbw->CBWCB[4] = LBA >> 8;
+    cbw->CBWCB[5] = LBA;
     cbw->CBWCB[6] = 0x00;
-    cbw->CBWCB[7] = 0x00; // BC1 - transfer length in blocks
-    cbw->CBWCB[8] = 0x00; // BC0
+    cbw->CBWCB[7] = BC >> 8;
+    cbw->CBWCB[8] = BC;
     cbw->CBWCB[9] = 0x00;
 }
 libusb_device_handle * find_mass_storage_device ( void ) {
@@ -552,7 +552,50 @@ int read_data ( libusb_device_handle * device_handle, TReadCapacityData * read_c
     free ( rec_data );
     return 1;
 }
-    
+
+int send_data ( libusb_device_handle * device_handle, unsigned char * data, int length ) {
+    int r = libusb_bulk_transfer (  device_handle,                   // dev handle
+                                    ENDPOINT_OUT,                    // endpoint
+                                    data,                            // data
+                                    length,                          // length
+                                    NULL,                            // actual transfer length
+                                    BULK_TRANSFER_TIMEOUT );         // timeout
+    if ( r != LIBUSB_SUCCESS ) {
+        fprintf(stderr, "Unable to send data\n");
+        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+        return 0;
+    }
+    return 1;
+}
+
+int write ( libusb_device_handle * device_handle, TReadCapacityData * read_capacity_data,
+            uint32_t LBA, uint16_t BC, unsigned char * data_to_write ) {
+    /**
+     * LBA = (LBA3«24)(LBA2«16)(LBA1«8)+LBA0
+     * BC = (BC1«8)+BC0
+     * 
+     * Pro realizaci tohoto příkazu budete volat třikrát funkci libusb_bulk_transfer.
+     * - na endpoint out, buffer: &cbw, size: sizeof(cbw)
+     * - na endpoint out, buffer: pro data, size: blen * BC
+     * - na endpoint in, buffer: &csw, size: sizeof(csw).
+     */
+    if ( LBA < 0 || LBA > read_capacity_data->m_Mlba )
+        return 0;
+    if ( BC < 0 || BC > 0xFFFF )
+        return 0;
+
+    CBW_t cbw_read_data;
+    fill_write_10_cbw(&cbw_read_data, read_capacity_data->m_Blength, BC, LBA);
+    if (    ! send_cbw ( device_handle, &cbw_read_data )
+         || ! send_data ( device_handle, data_to_write, read_capacity_data->m_Blength * BC )
+         || ! check_csw ( device_handle ) )
+        {
+            return 0;
+        }
+    return 1;
+}
+
+
 int main ( void ) {
     libusb_init(NULL);
     libusb_device_handle *device_handle = find_mass_storage_device();
@@ -566,7 +609,6 @@ int main ( void ) {
     }
 
     print_endpoint_descriptors(device_handle);
-
     printf ("Max LUN: %d\n", get_max_lun(device_handle));
 
     TReadCapacityData capacity_data;
@@ -579,12 +621,20 @@ int main ( void ) {
         return 1;
     }
 
-    /**
-     *  Přečtěte masterboot - sektor 0 (povinné) a vytiskněte položky partition table (dobrovolné).
-     *  Dobří programátoři se mohou pokusit o vypsání položek hlavního adresáře disku,
-     *  pokud bude naformátován na filesystem FAT.
-     */
-
+    // make a read command
+    // THIS CORRUPTS THE DEVICE, DO NOT RUN THIS IF YOU WANT TO KEEP YOUR DATA
+    u_int16_t BC = 1;
+    uint32_t LBA = 1;
+    unsigned char * data_to_send = (unsigned char *) malloc ( capacity_data.m_Blength * BC ); // 512B
+    for ( int i = 0; i < capacity_data.m_Blength * BC; i++ )
+        data_to_send[i] = i % 256;
+    if ( ! write ( device_handle, &capacity_data, LBA, BC, data_to_send ) ) {
+        free(data_to_send);
+        destroy_device (device_handle);
+        return 1;
+    }
+    
+    free(data_to_send);
     destroy_device(device_handle);
     return 0;
 }
