@@ -71,15 +71,24 @@ const struct config {
 
 #define EP0_OUT_BUF_SIZE 64
 #define EP0_IN_BUF_SIZE 64
+#define EP1_IN_BUF_SIZE 64
+#define EP2_OUT_BUF_SIZE 64
 
 DECLARE_EP_BEGIN
     DECLARE_EP(ep0);   // IN/OUT Control EP
+    DECLARE_EP(ep1);   // IN EP
+    DECLARE_EP(ep2);   // OUT EP
 DECLARE_EP_END
 
 DECLARE_BUFFER_BEGIN
     DECLARE_BUFFER(ep0_buf_out, EP0_OUT_BUF_SIZE);
     DECLARE_BUFFER(ep0_buf_in, EP0_IN_BUF_SIZE);
+    DECLARE_BUFFER(ep1_buf_in, EP1_IN_BUF_SIZE);
+    DECLARE_BUFFER(ep2_buf_out, EP2_OUT_BUF_SIZE);
 DECLARE_BUFFER_END
+
+#define EP1_IN  1
+#define EP2_OUT 2
 
 void init_basics ( void ) {
     cpu_init();
@@ -120,6 +129,9 @@ unsigned int DEBUG = 0x00000A04;
 #define CTS_DBGDSC  6
 
 int configuration = 0;
+
+int out_data = 0;
+int in_data  = 0;
 void process_control_transfer ( int ep ) {
     static int state = CTS_SETUP;
     static int addr = 0;
@@ -174,7 +186,13 @@ void process_control_transfer ( int ep ) {
             // Set configuration
             case 9:
                 configuration = req.wValue & 0xFF;
-                // TODO
+                // TODO - initialise endpoints
+                usb_init_ep(1, EP_IN, EP(ep1));
+                usb_init_ep(2, EP_OUT, EP(ep2));
+                in_data = 0;
+                out_data = 0;
+                usb_ep_transf_start(EP(ep2), USB_TRN_DATA0_OUT, ep2_buf_out, 0); // ?
+
                 usb_ep_transf_start(EP(ep0), USB_TRN_DATA1_IN, ep0_buf_in, 0);
                 state = CTS_ACKSC;
                 break;
@@ -216,9 +234,48 @@ void process_control_transfer ( int ep ) {
     }
 
 }
+/**
+  Funkce bude obsahovat následující funkcionalitu
 
+    Podle čísla koncového bodu rozhodněte, zda data odeslat nebo přijmout.
+    Pro koncový bod 1 (IN) uložte data (stav tlačítek klávesnice, 1 byte) do bufferu a funkcí
+    ep_tranfer_start naplánujte odeslání dat.
+    Pro koncový bod 2 (OUT) vyzvedněte data z bufferu a připravte k zobrazení na displeji.
+    Naplánujte další příjem dat z koncového bodu 2.
+
+Pro každý z koncových bodů deklarujte proměnnou, která bude indikovat jaký typ datového paketu se
+odešle/přijme: DATA0/DATA1. Typ paketu se musí střídat např. DATA0, DATA1, DATA0, DATA1, …​
+
+Data přijatá z koncového bodu 2 nezobrazujte ve funkci process_ep_transfer,
+protože zobrazení (pokud nepoužíváte funkce logování) může trvat dlouho a způsobit vypršení
+některých timeoutů vázaných na přenosy dat. Lepším (a také rychlejším) řešením je data
+uchovat v proměnné typu pole a zobrazení provést až v hlavní smyčce programu.
+*/
 void process_ep_transfer ( int ep ) {
-    
+    usb_device_req_t req;
+    switch (ep)
+    {
+    case EP1_IN:
+        usb_ep_transfer_start( EP(ep1),
+                               in_data == 1 ? USB_TRN_DATA1_IN : USB_TRN_DATA0_IN,
+                               ep1_buf_in, sizeof(req)
+                             );
+        in_data = ( in_data == 0 ? 1 : 0 ); // striedaj 1 a 0
+        copy_to_buffer(ep1_buf_in, &req, sizeof(req));
+        break;
+    case EP2_OUT:
+        usb_ep_transf_start( EP(ep2),
+                             out_data == 1 ? USB_TRN_DATA1_OUT : USB_TRN_DATA0_OUT,
+                             ep2_buf_out, sizeof(req)
+                            );
+        out_data = ( out_data == 0 ? 1 : 0 ); // striedaj 1 a 0
+        copy_from_buffer(ep2_buf_out, &req, sizeof(req));
+        // display data on device, using PRINT()?
+        break;
+    default:
+        PRINT("Unknown EP");
+        break;
+    }
 }
 
 
