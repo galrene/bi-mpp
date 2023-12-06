@@ -621,7 +621,7 @@ int main ( void ) {
         return 1;
     }
 
-    // make a read command
+    // make a write command
     // THIS CORRUPTS THE DEVICE, DO NOT RUN THIS IF YOU WANT TO KEEP YOUR DATA
     u_int16_t BC = 1;
     uint32_t LBA = 1;
