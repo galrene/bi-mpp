@@ -191,8 +191,20 @@ void process_control_transfer ( int ep ) {
                 usb_init_ep(2, EP_OUT, EP(ep2));
                 in_data = 0;
                 out_data = 0;
-                usb_ep_transf_start(EP(ep2), USB_TRN_DATA0_OUT, ep2_buf_out, 0); // ?
-
+                
+                usb_ep_transf_start( EP(ep2),
+                                     USB_TRN_DATA0_OUT,
+                                     ep2_buf_out,
+                                     0
+                                    );
+                out_data = ( out_data == 0 ? 1 : 0 ); // striedaj 1 a 0
+                usb_ep_transf_start( EP(ep1),
+                                     in_data == 1 ? USB_TRN_DATA1_IN : USB_TRN_DATA0_IN,
+                                     ep1_buf_in,
+                                     0
+                                    );
+                in_data = ( in_data == 0 ? 1 : 0 ); // striedaj 1 a 0
+                
                 usb_ep_transf_start(EP(ep0), USB_TRN_DATA1_IN, ep0_buf_in, 0);
                 state = CTS_ACKSC;
                 break;
@@ -251,26 +263,25 @@ protože zobrazení (pokud nepoužíváte funkce logování) může trvat dlouho
 některých timeoutů vázaných na přenosy dat. Lepším (a také rychlejším) řešením je data
 uchovat v proměnné typu pole a zobrazení provést až v hlavní smyčce programu.
 */
-void process_ep_transfer ( int ep ) {
-    usb_device_req_t req;
+void process_ep_transfer ( int ep, byte * buf_to_receive,
+                           byte * buf_to_send, unsigned int buf_to_send_size ) {
     switch (ep)
     {
     case EP1_IN:
-        usb_ep_transfer_start( EP(ep1),
+        copy_to_buffer(ep1_buf_in, buf_to_send, 1);
+        usb_ep_transf_start( EP(ep1),
                                in_data == 1 ? USB_TRN_DATA1_IN : USB_TRN_DATA0_IN,
-                               ep1_buf_in, sizeof(req)
+                               ep1_buf_in, buf_to_send_size
                              );
         in_data = ( in_data == 0 ? 1 : 0 ); // striedaj 1 a 0
-        copy_to_buffer(ep1_buf_in, &req, sizeof(req));
         break;
     case EP2_OUT:
+        copy_from_buffer(ep2_buf_out, buf_to_receive, EP2_OUT_BUF_SIZE );
         usb_ep_transf_start( EP(ep2),
                              out_data == 1 ? USB_TRN_DATA1_OUT : USB_TRN_DATA0_OUT,
-                             ep2_buf_out, sizeof(req)
+                             ep2_buf_out, EP2_OUT_BUF_SIZE
                             );
         out_data = ( out_data == 0 ? 1 : 0 ); // striedaj 1 a 0
-        copy_from_buffer(ep2_buf_out, &req, sizeof(req));
-        // display data on device, using PRINT()?
         break;
     default:
         PRINT("Unknown EP");
@@ -304,7 +315,7 @@ int main(int argc, char** argv) {
 
     	if (is_sof()) {
             // reportujte do logu
-//            PRINT("SOF");
+            //  PRINT("SOF");
     		continue;
     	}
 
@@ -319,7 +330,19 @@ int main(int argc, char** argv) {
                 continue;
     		}
             // zpracujte prenosy na ostatnych koncovych bodoch
-    		process_ep_transfer(ep_num);
+            else if (ep_num == EP1_IN ) {
+                byte key = get_touchpad_key(); // TODO: not sure if the correct func
+                while ( get_touchpad_key() == key ); // debounce
+                byte buf_to_send[1] = key;
+    		    process_ep_transfer(ep_num, NULL, buf_to_send, 1 );
+            }
+            else if (ep_num == EP2_OUT ) {
+                byte buf_to_receive[EP2_OUT_BUF_SIZE];
+    		    process_ep_transfer(ep_num, buf_to_receive, NULL, 0 );
+                PRINTF("Received: %s", buf_to_receive);
+            }
+            else
+                PRINT("Unknown EP");
     		continue;
     	}
         if ( count == 10 ) {    
