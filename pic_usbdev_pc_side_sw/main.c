@@ -56,11 +56,11 @@ void destroy_device ( struct libusb_device_handle *device ) {
 void read_data ( libusb_device_handle *device ) {
     unsigned char data[64];
     int r;
-    int actual_transferred;
+    int actual_transferred = 0;
     
-    while ( feof(stdin) == 0 ) {
+    while ( 1 ) {
         if ( (r = libusb_bulk_transfer ( device, ENDPOINT_IN, data, sizeof(data),
-                                        &actual_transferred, 3000 )) != LIBUSB_SUCCESS )
+                                        &actual_transferred, 5000 )) != LIBUSB_SUCCESS )
         {
             fprintf (stderr, "Error: %s\n", libusb_strerror(r));
             break;
