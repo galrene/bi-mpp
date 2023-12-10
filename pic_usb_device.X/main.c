@@ -32,10 +32,12 @@ const device_descr_t devdsc __attribute__((space(auto_psv))) = {
     1                       // bNumConfigurations
 };
 /**
- 
 Endpoint Descriptor
 
-The Endpoint Descriptor (USB_ENDPOINT_DESCRIPTOR) specifies the transfer type, direction, polling interval, and maximum packet size for each endpoint. Endpoint 0 (zero), the default endpoint, is always assumed to be a control endpoint and never has a descriptor.
+The Endpoint Descriptor (USB_ENDPOINT_DESCRIPTOR) specifies the transfer type, direction,
+polling interval, and maximum packet size for each endpoint. Endpoint 0 (zero),
+the default endpoint, is always assumed to be a control endpoint and never has a descriptor.
+
 Offset 	Field 	Type 	Size 	Value 	Description
 0 	bLength 	uint8_t 	1 	Number 	Size of this descriptor in bytes.
 1 	bDescriptorType 	uint8_t 	1 	Constant 	Endpoint Descriptor Type = 5.
@@ -97,61 +99,6 @@ Interval for polling endpoint for data transfers. Expressed in frames or micro-f
 
  * 
  */
-const struct config {
-    config_descriptor_t config_descr;
-    interf_descriptor_t interf_descr;
-    endpoint_descriptor_t endp_descr1;
-    endpoint_descriptor_t endp_descr2;
-    endpoint_descriptor_t endp_descr3;
-} CONFIG __attribute__((space(auto_psv))) = {
-    {
-        sizeof(config_descriptor_t),
-        2,               // bDescriptorType
-        sizeof(CONFIG),
-        1,               // bNumInterfaces
-        0x01,            // bConfigurationValue
-        0,               // iConfiguration
-        0x80,            // bmAttributes
-        50               // bMaxPower
-    },
-    {
-        sizeof(interf_descriptor_t),
-        4,               // bDescriptorType
-        0,               // bInterfaceNumber
-        0x0,             // bAlternateSetting
-        3,               // bNumEndpoints
-        0xFF,            // bInterfaceClass
-        0x0,            // bInterfaceSubClass
-        0x0,            // bInterfaceProtocol
-        0                // iInterface
-    },
-    {
-        sizeof(endpoint_descriptor_t),
-        5,               // bDescriptorType
-        0x81,             // bEndpointAddress
-        3,               // bmAttributes
-        10,              // wMaxPacketSize
-        1                // bInterval
-    },
-    {
-        sizeof(endpoint_descriptor_t),
-        5,               // bDescriptorType
-        0x02,             // bEndpointAddress
-        3,               // bmAttributes
-        10,              // wMaxPacketSize
-        1                // bInterval
-    },
-    {
-        sizeof(endpoint_descriptor_t),
-        5,               // bDescriptorType
-        0x83,             // bEndpointAddress
-        3,               // bmAttributes
-        10,              // wMaxPacketSize
-        1                // bInterval
-    }
-};
-// -- device decsriptor end --
-
 #define EP0_OUT_BUF_SIZE 64
 #define EP0_IN_BUF_SIZE 64
 #define EP1_IN_BUF_SIZE 64
@@ -170,9 +117,57 @@ DECLARE_BUFFER_BEGIN
     DECLARE_BUFFER(ep2_buf_out, EP2_OUT_BUF_SIZE);
 DECLARE_BUFFER_END
 
-#define EP1_IN  1
-#define EP2_OUT 2
+#define ENDPOINT_IN  0x81
+#define ENDPOINT_OUT 0x02
 
+const struct config {
+    config_descriptor_t config_descr;
+    interf_descriptor_t interf_descr;
+    endpoint_descriptor_t endp_descr1;
+    endpoint_descriptor_t endp_descr2;
+} CONFIG __attribute__((space(auto_psv))) = {
+    {
+        sizeof(config_descriptor_t),
+        2,               // bDescriptorType
+        sizeof(CONFIG),
+        1,               // bNumInterfaces
+        0x01,            // bConfigurationValue
+        0,               // iConfiguration
+        0x80,            // bmAttributes
+        50               // bMaxPower
+    },
+    {
+        sizeof(interf_descriptor_t),
+        4,               // bDescriptorType
+        0,               // bInterfaceNumber
+        0x0,             // bAlternateSetting
+        2,               // bNumEndpoints
+        0xFF,            // bInterfaceClass
+        0x0,            // bInterfaceSubClass
+        0x0,            // bInterfaceProtocol
+        0                // iInterface
+    },
+    {
+        sizeof(endpoint_descriptor_t),
+        5,                 // bDescriptorType
+        ENDPOINT_IN,       // bEndpointAddress
+        3,                 // bmAttributes
+        10,                // wMaxPacketSize
+        1                  // bInterval
+    },
+    {
+        sizeof(endpoint_descriptor_t),
+        5,                 // bDescriptorType
+        ENDPOINT_OUT,      // bEndpointAddress
+        3,                 // bmAttributes
+        10,                // wMaxPacketSize
+        1                  // bInterval
+    }  
+
+    // out dal attr=2(blokovy prenos) in dal attr=3(interruptovy prenos)
+    // in interval=1, out interval=0
+};
+// -- device decsriptor end --
 void init_basics ( void ) {
     cpu_init();
     led_init();
@@ -269,7 +264,7 @@ void process_control_transfer ( int ep ) {
             // Set configuration
             case 9:
                 configuration = req.wValue & 0xFF;
-                // TODO - initialise endpoints
+                
                 usb_init_ep(1, EP_IN, EP(ep1));
                 usb_init_ep(2, EP_OUT, EP(ep2));
                 in_data = 0;
@@ -282,7 +277,7 @@ void process_control_transfer ( int ep ) {
                                     );
                 out_data = ( out_data == 0 ? 1 : 0 ); // striedaj 1 a 0
                 usb_ep_transf_start( EP(ep1),
-                                     in_data == 1 ? USB_TRN_DATA1_IN : USB_TRN_DATA0_IN,
+                                     USB_TRN_DATA0_IN,
                                      ep1_buf_in,
                                      0
                                     );
@@ -322,12 +317,13 @@ void process_control_transfer ( int ep ) {
             usb_ep_transf_start(EP(ep0), USB_TRN_SETUP, ep0_buf_out, EP0_OUT_BUF_SIZE);
             break;
         // case CTS_ACKSC:
+        //     device_state = CONFIGURED;
+        //     state = CTS_SETUP;
         //     usb_ep_transf_start(EP(ep0), USB_TRN_SETUP, ep0_buf_out, EP0_OUT_BUF_SIZE);
         //     break;
         
             
     }
-
 }
 /**
   Funkce bude obsahovat následující funkcionalitu
@@ -350,7 +346,7 @@ void process_ep_transfer ( int ep, byte * buf_to_receive,
                            byte * buf_to_send, unsigned int buf_to_send_size ) {
     switch (ep)
     {
-    case EP1_IN:
+    case ENDPOINT_IN:
         copy_to_buffer(ep1_buf_in, buf_to_send, 1);
         usb_ep_transf_start( EP(ep1),
                                in_data == 1 ? USB_TRN_DATA1_IN : USB_TRN_DATA0_IN,
@@ -358,7 +354,7 @@ void process_ep_transfer ( int ep, byte * buf_to_receive,
                              );
         in_data = ( in_data == 0 ? 1 : 0 ); // striedaj 1 a 0
         break;
-    case EP2_OUT:
+    case ENDPOINT_OUT:
         copy_from_buffer(ep2_buf_out, buf_to_receive, EP2_OUT_BUF_SIZE );
         usb_ep_transf_start( EP(ep2),
                              out_data == 1 ? USB_TRN_DATA1_OUT : USB_TRN_DATA0_OUT,
@@ -413,19 +409,19 @@ int main(int argc, char** argv) {
                 continue;
     		}
             // zpracujte prenosy na ostatnych koncovych bodoch
-            else if (ep_num == EP1_IN ) {
+            else if (ep_num == ENDPOINT_IN ) {
                 byte key = get_touchpad_key(); // TODO: not sure if the correct func
                 while ( get_touchpad_key() == key ); // debounce
                 byte buf_to_send[1]; buf_to_send[0] = key;
     		    process_ep_transfer(ep_num, NULL, buf_to_send, 1 );
             }
-            else if (ep_num == EP2_OUT ) {
+            else if (ep_num == ENDPOINT_OUT ) {
                 byte buf_to_receive[EP2_OUT_BUF_SIZE];
     		    process_ep_transfer(ep_num, buf_to_receive, NULL, 0 );
                 PRINTF("Received: %s", buf_to_receive);
             }
             else
-                PRINT("Unknown EP");
+                PRINTF("Unknown EP %d\n", ep_num);
     		continue;
     	}
         if ( count == 10 ) {    
