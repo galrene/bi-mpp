@@ -58,6 +58,13 @@ void read_data ( libusb_device_handle *device ) {
     int r;
     int actual_transferred = 0;
     
+    if ( (r = libusb_bulk_transfer ( device, ENDPOINT_IN, data, sizeof(data),
+                                        &actual_transferred, 0 )) != LIBUSB_SUCCESS )
+        {
+            fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+            return;
+        }
+
     while ( 1 ) {
         if ( (r = libusb_bulk_transfer ( device, ENDPOINT_IN, data, sizeof(data),
                                         &actual_transferred, 0 )) != LIBUSB_SUCCESS )
