@@ -435,3 +435,10 @@ int main(int argc, char** argv) {
     return 1;
 }
 
+/**
+ * ISSUES:
+ * When receiving data form pc, it prints a lot of garbage besides the data.
+ * 
+ * After quitting the pc side code or after it times out, the device no longer responds and
+ * needs to be reconnected
+ */
