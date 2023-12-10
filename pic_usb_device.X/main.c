@@ -403,22 +403,24 @@ int main(int argc, char** argv) {
             // get number of endpoint where transfer ended
     		int ep_num = get_trn_status();
             PRINTF("TRN DONE [0x%02X]\n", ep_num);
-    		if (ep_num == 0 || ep_num == 0x80) { // endpoint in alebo out
+    		if (ep_num == 0 || ep_num == 0x80) { // endpoint0 in alebo out
                 // function for servicing endpoint tranfsers
                 process_control_transfer(ep_num);
                 continue;
     		}
             // zpracujte prenosy na ostatnych koncovych bodoch
             else if (ep_num == ENDPOINT_IN ) {
-                byte key = get_touchpad_key(); // TODO: not sure if the correct func
-                while ( get_touchpad_key() == key ); // debounce
+                while ( get_touchpad_key() == 0 ); // wait for key press
+                byte key = get_touchpad_key(); while ( get_touchpad_key() == key ); // debounce
                 byte buf_to_send[1]; buf_to_send[0] = key;
-    		    process_ep_transfer(ep_num, NULL, buf_to_send, 1 );
+    		    process_ep_transfer(ep_num, NULL, buf_to_send, sizeof(buf_to_send) );
+                continue;
             }
             else if (ep_num == ENDPOINT_OUT ) {
-                byte buf_to_receive[EP2_OUT_BUF_SIZE];
+                byte buf_to_receive[EP2_OUT_BUF_SIZE] = {0};
     		    process_ep_transfer(ep_num, buf_to_receive, NULL, 0 );
                 PRINTF("Received: %s", buf_to_receive);
+                continue;
             }
             else
                 PRINTF("Unknown EP %d\n", ep_num);
