@@ -9,6 +9,7 @@
 #define ST_DEVDSC_STATUS    2
 #define ST_SETADDR_STATUS   3
 #define ENDPOINT_IN         0x81
+#define ENDPOINT_OUT        0x02
 
 void print_endpoint_descriptors ( libusb_device_handle * handle ) {
     libusb_device * device = libusb_get_device(handle);
@@ -56,17 +57,19 @@ void read_data ( libusb_device_handle *device ) {
     unsigned char data[64];
     int r;
     int actual_transferred;
-    if ( (r = libusb_bulk_transfer ( device, 0x83, data, sizeof(data),
-                                    &actual_transferred, 3000 )) != LIBUSB_SUCCESS )
-    {
-        fprintf(stderr, "Function returned %d", r);
-        fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+    
+    while ( feof(stdin) == 0 ) {
+        if ( (r = libusb_bulk_transfer ( device, ENDPOINT_IN, data, sizeof(data),
+                                        &actual_transferred, 3000 )) != LIBUSB_SUCCESS )
+        {
+            fprintf (stderr, "Error: %s\n", libusb_strerror(r));
+            break;
+        }
+        printf("Received %d bytes\n", actual_transferred);
+        for ( int i = 0; i < actual_transferred; i++ )
+            printf("%02x ", data[i]);
+        printf("\n");
     }
-
-    printf("Received %d bytes\n", actual_transferred);
-    for ( int i = 0; i < actual_transferred; i++ )
-        printf("%02x ", data[i]);
-    printf("\n");
 }
 
 void send_data ( libusb_device_handle * device, int * value ) {
@@ -75,10 +78,9 @@ void send_data ( libusb_device_handle * device, int * value ) {
     int actual_transferred;
     snprintf ( (char *) data, sizeof(data) - 1, "%d", *value );
     (*value)++;
-    if ( (r = libusb_bulk_transfer ( device, 0x02, data, sizeof(data),
+    if ( (r = libusb_bulk_transfer ( device, ENDPOINT_OUT, data, sizeof(data),
                                 &actual_transferred, 3000 )) != LIBUSB_SUCCESS )
     {
-        fprintf(stderr, "Function returned %d", r);
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
     }
 }
