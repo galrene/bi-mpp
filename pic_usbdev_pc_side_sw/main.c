@@ -83,13 +83,20 @@ void send_data ( libusb_device_handle * device, char * value ) {
     int r;
     unsigned char data[32];
     int actual_transferred;
-    snprintf ( (char *) data, sizeof(data) - 1, "%d", *value );
+    int written_bytes = snprintf ( (char *) data, sizeof(data) - 1, "%d", *value );
     (*value)++;
-    if ( (r = libusb_bulk_transfer ( device, ENDPOINT_OUT, data, sizeof(data),
+    if ( (r = libusb_bulk_transfer ( device, ENDPOINT_OUT, data, written_bytes,
                                 &actual_transferred, 0 )) != LIBUSB_SUCCESS )
     {
         fprintf (stderr, "Error: %s\n", libusb_strerror(r));
     }
+    printf ("Transferred: %d\n", actual_transferred);
+}
+
+void print_options ( void ) {
+    printf("Choose action:\n");
+    printf("r - read received data from device\n");
+    printf("s - send data to device\n");
 }
 
 int main ( void ) {
@@ -109,9 +116,7 @@ int main ( void ) {
 
     char choice;
     char value_to_send = 0;
-    printf("Choose action:\n");
-    printf("r - read received data from device\n");
-    printf("s - send data to device\n");
+    print_options();
     while ( scanf(" %c", &choice) == 1 ) {
         switch (choice) {
             case 'r':
@@ -124,9 +129,7 @@ int main ( void ) {
                 printf("Unknown action\n");
                 break;
         }
-        printf("Choose action:\n");
-        printf("r - read received data from device\n");
-        printf("s - send data to device\n");
+        print_options();
     }
 
     return 0;
