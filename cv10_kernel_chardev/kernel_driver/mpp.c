@@ -54,14 +54,16 @@ static int mpp_release(struct inode *inode, struct file *f)
     return 0;
 }
 
-void cipher ( char * buf, size_t size )
+static void cipher ( char * buf, size_t size )
 {
+    printk("cipher\n");
     for ( int i = 0; i < size; i++ )
         buf[i] = buf[i] ^ 0x55;
 }
 
-void capitalise ( char * buf, size_t size )
+static void capitalise ( char * buf, size_t size )
 {
+    printk("capitalise\n");
     for ( int i = 0; i < size; i++ )
         if ( buf[i] >= 'a' && buf[i] <= 'z' )
             buf[i] = buf[i] - 'a' + 'A';
@@ -73,7 +75,7 @@ static ssize_t mpp_read(struct file *f, char *buf, size_t size, loff_t *offset)
     char str[] = "Hello from kernel!\n";
     
     if ( g_Capitalise ) capitalise ( str, sizeof(str) );
-    else if ( g_CipherToggle ) cipher ( str, sizeof(str) );
+    if ( g_CipherToggle ) cipher ( str, sizeof(str) );
 
     int not_copied_size = copy_to_user ( buf, str, sizeof(str) );
     return size - not_copied_size;
@@ -87,7 +89,7 @@ static ssize_t mpp_write(struct file *f, const char *buf, size_t size, loff_t *o
     copy_from_user ( (void *) kbuf, buf, size );
 
     if ( g_Capitalise ) capitalise ( kbuf, size );
-    else if ( g_CipherToggle ) cipher ( kbuf, size );
+    if ( g_CipherToggle ) cipher ( kbuf, size );
 
     printk("%s", kbuf);
 
@@ -96,19 +98,21 @@ static ssize_t mpp_write(struct file *f, const char *buf, size_t size, loff_t *o
 }
 
 
-#define REQ_CAPITALISE 1
-#define REQ_CIPHER     2
+#define REQ_CAPITALISE 100
+#define REQ_CIPHER     200
 
 static long mpp_ioctl ( struct file *f, unsigned int request, unsigned long param )
 {
     switch (request)
     {
     case REQ_CAPITALISE:
+        printk("REQ_CAPITALISE\n");
         g_Capitalise = param == 1 ?
                             1 :
                             0;
         break;
     case REQ_CIPHER:
+        printk("REQ_CIPHER\n");
         g_CipherToggle = param == 1 ?
                             1 :
                             0;
@@ -116,7 +120,7 @@ static long mpp_ioctl ( struct file *f, unsigned int request, unsigned long para
     default:
         break;
     }
-    return 1;
+    return 0;
 }
 
 static int major = 0;
